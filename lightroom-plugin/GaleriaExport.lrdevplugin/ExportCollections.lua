@@ -26,41 +26,26 @@ local LrBinding = import 'LrBinding'
 local LrColor = import 'LrColor'
 
 -- ============================================
--- SZABLONY NAZEWNICTWA (mapowane na tokeny LR)
+-- TOKENY DO BUDOWANIA NAZWY (kafelki)
 -- ============================================
 
-local NAMING_TEMPLATES = {
-  { 
-    name = "Oryginalna nazwa",
-    lrTokens = "{{image_name}}",
-    preview = "DSC_1234.jpg"
-  },
-  { 
-    name = "Numer sekwencyjny (001, 002...)",
-    lrTokens = "{{sequence_001}}",
-    preview = "001.jpg"
-  },
-  { 
-    name = "Data + Numer",
-    lrTokens = "{{date_YYYY}}-{{date_MM}}-{{date_DD}}_{{sequence_001}}",
-    preview = "2025-11-28_001.jpg"
-  },
-  { 
-    name = "Oryginalna + Numer",
-    lrTokens = "{{image_name}}_{{sequence_001}}",
-    preview = "DSC_1234_001.jpg"
-  },
-  { 
-    name = "Data + Oryginalna",
-    lrTokens = "{{date_YYYY}}-{{date_MM}}-{{date_DD}}_{{image_name}}",
-    preview = "2025-11-28_DSC_1234.jpg"
-  },
-  { 
-    name = "Własny tekst + Numer",
-    lrTokens = "custom",
-    preview = "MojeZdjecie_001.jpg",
-    needsCustomText = true
-  },
+local NAMING_TOKENS = {
+  { id = "name", label = "📷 Oryginalna nazwa", token = "{{image_name}}", preview = "DSC_1234" },
+  { id = "seq", label = "🔢 Numer (001)", token = "{{sequence_001}}", preview = "001" },
+  { id = "date", label = "📅 Data", token = "{{date_YYYY}}-{{date_MM}}-{{date_DD}}", preview = "2025-11-28" },
+  { id = "year", label = "📆 Rok", token = "{{date_YYYY}}", preview = "2025" },
+  { id = "custom", label = "✏️ Własny tekst", token = "custom", preview = "MójTekst" },
+  { id = "sep_dash", label = "➖ Myślnik -", token = "-", preview = "-" },
+  { id = "sep_under", label = "▪️ Podkreślnik _", token = "_", preview = "_" },
+}
+
+-- Szybkie predefiniowane szablony
+local QUICK_TEMPLATES = {
+  { name = "🏷️ Oryginalna nazwa", tokens = { "name" } },
+  { name = "🔢 Tylko numer", tokens = { "seq" } },
+  { name = "📅 Data + Numer", tokens = { "date", "sep_under", "seq" } },
+  { name = "📷 Nazwa + Numer", tokens = { "name", "sep_under", "seq" } },
+  { name = "✏️ Własny + Numer", tokens = { "custom", "sep_under", "seq" } },
 }
 
 -- ============================================
@@ -184,9 +169,45 @@ end
 -- DIALOG WYBORU
 -- ============================================
 
+-- Funkcja do budowania tokena LR z listy wybranych tokenów
+local function buildTokenString(selectedTokens, customText)
+  local result = ""
+  for _, tokenId in ipairs(selectedTokens) do
+    for _, token in ipairs(NAMING_TOKENS) do
+      if token.id == tokenId then
+        if token.id == "custom" then
+          result = result .. customText
+        else
+          result = result .. token.token
+        end
+        break
+      end
+    end
+  end
+  return result
+end
+
+-- Funkcja do generowania podglądu
+local function buildPreviewString(selectedTokens, customText)
+  local result = ""
+  for _, tokenId in ipairs(selectedTokens) do
+    for _, token in ipairs(NAMING_TOKENS) do
+      if token.id == tokenId then
+        if token.id == "custom" then
+          result = result .. customText
+        else
+          result = result .. token.preview
+        end
+        break
+      end
+    end
+  end
+  return result .. ".jpg"
+end
+
 local function showSelectionDialog(allCollections)
   local selectedCollections = {}
-  local selectedNamingTokens = NAMING_TEMPLATES[1].lrTokens
+  local finalNamingTokens = "{{image_name}}"
   
   LrFunctionContext.callWithContext("selectionDialog", function(dialogContext)
     local props = LrBinding.makePropertyTable(dialogContext)
@@ -196,22 +217,87 @@ local function showSelectionDialog(allCollections)
       props["selected_" .. i] = true
     end
     props.selectAll = true
-    props.namingPreset = 1
-    props.customPrefix = "Zdjecie"
-    props.filenamePreview = NAMING_TEMPLATES[1].preview
     
-    -- Aktualizacja podglądu
-    local function updatePreview()
-      local template = NAMING_TEMPLATES[props.namingPreset]
-      if template.needsCustomText then
-        props.filenamePreview = props.customPrefix .. "_001.jpg"
+    -- Aktywne tokeny (tablica ID tokenów w kolejności)
+    props.activeTokens = { "name" }  -- Domyślnie oryginalna nazwa
+    props.customText = "MojeZdjecie"
+    props.filenamePreview = "DSC_1234.jpg"
+    props.activeTokensDisplay = "📷 Oryginalna nazwa"
+    props.quickTemplate = 1
+    
+    -- Funkcja odświeżająca wyświetlanie aktywnych tokenów i podgląd
+    local function refreshDisplay()
+      local displayParts = {}
+      local previewParts = {}
+      
+      for _, tokenId in ipairs(props.activeTokens) do
+        for _, token in ipairs(NAMING_TOKENS) do
+          if token.id == tokenId then
+            table.insert(displayParts, token.label)
+            if token.id == "custom" then
+              table.insert(previewParts, props.customText)
+            else
+              table.insert(previewParts, token.preview)
+            end
+            break
+          end
+        end
+      end
+      
+      if #displayParts > 0 then
+        props.activeTokensDisplay = table.concat(displayParts, " ➔ ")
+        props.filenamePreview = table.concat(previewParts, "") .. ".jpg"
       else
-        props.filenamePreview = template.preview
+        props.activeTokensDisplay = "(brak - kliknij tokeny poniżej)"
+        props.filenamePreview = "(wybierz elementy nazwy)"
       end
     end
     
-    props:addObserver("namingPreset", updatePreview)
-    props:addObserver("customPrefix", updatePreview)
+    -- Funkcja dodająca token
+    local function addToken(tokenId)
+      local newTokens = {}
+      for _, t in ipairs(props.activeTokens) do
+        table.insert(newTokens, t)
+      end
+      table.insert(newTokens, tokenId)
+      props.activeTokens = newTokens
+      refreshDisplay()
+    end
+    
+    -- Funkcja usuwająca ostatni token
+    local function removeLastToken()
+      if #props.activeTokens > 0 then
+        local newTokens = {}
+        for i = 1, #props.activeTokens - 1 do
+          table.insert(newTokens, props.activeTokens[i])
+        end
+        props.activeTokens = newTokens
+        refreshDisplay()
+      end
+    end
+    
+    -- Funkcja czyszcząca wszystkie tokeny
+    local function clearAllTokens()
+      props.activeTokens = {}
+      refreshDisplay()
+    end
+    
+    -- Funkcja ustawiająca szybki szablon
+    local function applyQuickTemplate(templateIndex)
+      local template = QUICK_TEMPLATES[templateIndex]
+      if template then
+        props.activeTokens = {}
+        for _, tokenId in ipairs(template.tokens) do
+          table.insert(props.activeTokens, tokenId)
+        end
+        refreshDisplay()
+      end
+    end
+    
+    props:addObserver("customText", refreshDisplay)
+    props:addObserver("quickTemplate", function()
+      applyQuickTemplate(props.quickTemplate)
+    end)
     
     local f = LrView.osFactory()
     
@@ -245,10 +331,22 @@ local function showSelectionDialog(allCollections)
       end
     end)
     
-    -- Lista szablonów
-    local namingPresetItems = {}
-    for i, preset in ipairs(NAMING_TEMPLATES) do
-      table.insert(namingPresetItems, { title = preset.name, value = i })
+    -- Szybkie szablony
+    local quickTemplateItems = {}
+    for i, template in ipairs(QUICK_TEMPLATES) do
+      table.insert(quickTemplateItems, { title = template.name, value = i })
+    end
+    
+    -- Przyciski tokenów (kafelki)
+    local tokenButtons = {}
+    for _, token in ipairs(NAMING_TOKENS) do
+      table.insert(tokenButtons, f:push_button {
+        title = token.label,
+        width = 150,
+        action = function()
+          addToken(token.id)
+        end,
+      })
     end
     
     -- Dialog
@@ -262,56 +360,106 @@ local function showSelectionDialog(allCollections)
       },
       
       f:scrolled_view {
-        width = 500,
-        height = 180,
+        width = 540,
+        height = 150,
         f:column(checkboxRows),
       },
       
       f:separator { fill_horizontal = 1 },
       
+      -- SEKCJA NAZEWNICTWA
       f:static_text {
-        title = "📝 Nazewnictwo plików:",
+        title = "🏷️ Buduj nazwę pliku:",
         font = "<system/bold>",
       },
       
+      -- Szybki wybór
       f:row {
-        f:static_text { title = "Szablon:", width = 80 },
+        f:static_text { title = "Szybki szablon:", width = 100 },
         f:popup_menu {
-          items = namingPresetItems,
-          value = LrView.bind("namingPreset"),
-          width = 250,
-        },
-      },
-      
-      f:row {
-        f:static_text { title = "Prefix:", width = 80 },
-        f:edit_field {
-          value = LrView.bind("customPrefix"),
+          items = quickTemplateItems,
+          value = LrView.bind("quickTemplate"),
           width = 200,
-          enabled = LrBinding.keyEquals("namingPreset", 6),
-        },
-        f:static_text {
-          title = "(tylko dla 'Własny tekst')",
-          text_color = LrColor(0.5, 0.5, 0.5),
         },
       },
       
       f:separator { fill_horizontal = 1 },
       
+      -- Kafelki tokenów - rząd 1
       f:row {
-        f:static_text { title = "👁 Podgląd:", font = "<system/bold>", width = 80 },
+        spacing = f:label_spacing(),
+        tokenButtons[1], -- Oryginalna nazwa
+        tokenButtons[2], -- Numer
+        tokenButtons[3], -- Data
+      },
+      
+      -- Kafelki tokenów - rząd 2
+      f:row {
+        spacing = f:label_spacing(),
+        tokenButtons[4], -- Rok
+        tokenButtons[5], -- Własny tekst
+      },
+      
+      -- Separatory
+      f:row {
+        spacing = f:label_spacing(),
+        tokenButtons[6], -- Myślnik
+        tokenButtons[7], -- Podkreślnik
+        f:push_button {
+          title = "⬅️ Cofnij",
+          width = 80,
+          action = removeLastToken,
+        },
+        f:push_button {
+          title = "🗑️ Wyczyść",
+          width = 80,
+          action = clearAllTokens,
+        },
+      },
+      
+      f:separator { fill_horizontal = 1 },
+      
+      -- Własny tekst
+      f:row {
+        f:static_text { title = "Własny tekst:", width = 100 },
+        f:edit_field {
+          value = LrView.bind("customText"),
+          width = 200,
+        },
+      },
+      
+      f:separator { fill_horizontal = 1 },
+      
+      -- Aktualny szablon
+      f:row {
+        f:static_text { title = "Szablon:", width = 100, font = "<system/bold>" },
+        f:static_text {
+          title = LrView.bind("activeTokensDisplay"),
+          width = 400,
+          text_color = LrColor(0.2, 0.4, 0.8),
+        },
+      },
+      
+      -- Podgląd
+      f:row {
+        f:static_text { title = "👁 Podgląd:", width = 100, font = "<system/bold>" },
         f:static_text {
           title = LrView.bind("filenamePreview"),
           font = "<system/bold>",
-          text_color = LrColor(0.2, 0.6, 0.2),
+          text_color = LrColor(0.1, 0.6, 0.1),
         },
       },
       
       f:separator { fill_horizontal = 1 },
       
+      -- Ustawienia eksportu
       f:static_text { title = "⚙️ Ustawienia eksportu:", font = "<system/bold>" },
-      f:static_text { title = "• Light: 1800px, JPEG 85%, 72 DPI" },
-      f:static_text { title = "• Max: Oryginalny rozmiar, JPEG 100%, 300 DPI" },
+      f:row {
+        f:static_text { title = "• Light: 1800px, JPEG 85%, 72 DPI", text_color = LrColor(0.4, 0.4, 0.4) },
+      },
+      f:row {
+        f:static_text { title = "• Max: Oryginalny rozmiar, JPEG 100%, 300 DPI", text_color = LrColor(0.4, 0.4, 0.4) },
+      },
     }
     
     local result = LrDialogs.presentModalDialog({
@@ -328,16 +476,14 @@ local function showSelectionDialog(allCollections)
         end
       end
       
-      local template = NAMING_TEMPLATES[props.namingPreset]
-      if template.needsCustomText then
-        selectedNamingTokens = props.customPrefix .. "_{{sequence_001}}"
-      else
-        selectedNamingTokens = template.lrTokens
+      finalNamingTokens = buildTokenString(props.activeTokens, props.customText)
+      if finalNamingTokens == "" then
+        finalNamingTokens = "{{image_name}}"
       end
     end
   end)
   
-  return selectedCollections, selectedNamingTokens
+  return selectedCollections, finalNamingTokens
 end
 
 -- ============================================
