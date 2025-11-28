@@ -474,18 +474,24 @@ local function showSelectionDialog(allCollections)
         f:static_text { title = "Szablon:", width = 100, font = "<system/bold>" },
         f:static_text {
           title = LrView.bind("activeTokensDisplay"),
-          width = 400,
+          width_in_chars = 50,
+          height_in_lines = 2,
           text_color = LrColor(0.2, 0.4, 0.8),
+          wrap = true,
         },
       },
       
-      -- Podgląd
+      -- Podgląd - duży i widoczny
       f:row {
         f:static_text { title = "👁 Podgląd:", width = 100, font = "<system/bold>" },
-        f:static_text {
-          title = LrView.bind("filenamePreview"),
+      },
+      f:row {
+        f:static_text { title = "", width = 100 },
+        f:edit_field {
+          value = LrView.bind("filenamePreview"),
+          width_in_chars = 50,
+          enabled = false,
           font = "<system/bold>",
-          text_color = LrColor(0.1, 0.6, 0.1),
         },
       },
       
