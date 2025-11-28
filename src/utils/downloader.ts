@@ -24,14 +24,22 @@ export async function downloadAlbumAsZip(
   // Fetch and add each photo to the ZIP
   const fetchPromises = photos.map(async (photo, index) => {
     try {
-      const response = await fetch(photo.src);
+      const response = await fetch(photo.src, {
+        mode: 'cors',
+        credentials: 'omit',
+      });
       
       if (!response.ok) {
-        console.warn(`Failed to fetch photo: ${photo.src}`);
+        console.warn(`Failed to fetch photo: ${photo.src}, status: ${response.status}`);
         return;
       }
       
       const blob = await response.blob();
+      
+      if (blob.size === 0) {
+        console.warn(`Empty blob for photo: ${photo.src}`);
+        return;
+      }
       
       // Extract filename from URL or use index
       const urlParts = photo.src.split('/');
@@ -119,6 +127,7 @@ export function formatFileSize(bytes: number): string {
  * Downloads a single album as ZIP
  */
 export async function downloadAlbum(album: Album): Promise<void> {
+  console.log('Downloading album:', album.name, 'with', album.photos.length, 'photos');
   await downloadAlbumAsZip(album.photos, album.name);
 }
 
@@ -127,6 +136,7 @@ export async function downloadAlbum(album: Album): Promise<void> {
  */
 export async function downloadMultipleAlbums(albums: Album[]): Promise<void> {
   const zip = new JSZip();
+  let totalAdded = 0;
 
   for (const album of albums) {
     const folder = zip.folder(album.name);
@@ -134,23 +144,46 @@ export async function downloadMultipleAlbums(albums: Album[]): Promise<void> {
 
     for (const photo of album.photos) {
       try {
-        const response = await fetch(photo.src);
-        if (!response.ok) continue;
+        console.log('Fetching:', photo.src);
+        const response = await fetch(photo.src, {
+          mode: 'cors',
+          credentials: 'omit',
+        });
+        
+        if (!response.ok) {
+          console.warn(`Failed: ${photo.src} - ${response.status}`);
+          continue;
+        }
+        
         const blob = await response.blob();
+        console.log('Blob size:', blob.size, 'type:', blob.type);
+        
+        if (blob.size === 0) {
+          console.warn('Empty blob:', photo.src);
+          continue;
+        }
         
         const urlParts = photo.src.split('/');
         let filename = urlParts[urlParts.length - 1].split('?')[0];
         if (!filename.includes('.')) {
-          filename = `photo.jpg`;
+          filename = `photo_${totalAdded + 1}.jpg`;
         }
         
         folder.file(filename, blob);
+        totalAdded++;
       } catch (e) {
-        console.warn(`Failed to fetch ${photo.src}`, e);
+        console.error(`Error fetching ${photo.src}:`, e);
       }
     }
   }
 
+  console.log('Total photos added to ZIP:', totalAdded);
+  
+  if (totalAdded === 0) {
+    throw new Error('Nie udało się pobrać żadnych zdjęć');
+  }
+
   const content = await zip.generateAsync({ type: 'blob' });
+  console.log('ZIP size:', content.size);
   saveAs(content, 'galeria.zip');
 }

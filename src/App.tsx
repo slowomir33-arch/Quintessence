@@ -4,7 +4,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { 
   Settings, Upload, Camera, RefreshCw, Wifi, WifiOff, 
   Download, CheckSquare, Square, ChevronLeft, ChevronRight, X,
-  Image, Menu
+  Image, Menu, Maximize, Lock
 } from 'lucide-react';
 
 // Components
@@ -386,10 +386,11 @@ const Slider3D: React.FC<SliderProps> = ({ photos, onPhotoClick, activeIndex, on
           >
             <div className="relative rounded-xl md:rounded-2xl overflow-hidden shadow-2xl shadow-black/50">
               <img
-                src={photo.thumbnail || photo.src}
+                src={photo.src}
                 alt={photo.title || ''}
                 className="w-full aspect-[3/2] object-cover"
                 draggable={false}
+                loading="lazy"
               />
             </div>
           </div>
@@ -414,10 +415,10 @@ const Slider3D: React.FC<SliderProps> = ({ photos, onPhotoClick, activeIndex, on
         </>
       )}
 
-      {/* Counter */}
-      <div className="absolute bottom-2 md:bottom-4 left-1/2 -translate-x-1/2 bg-black/50 backdrop-blur-sm px-3 md:px-4 py-1.5 md:py-2 rounded-full">
-        <span className="text-white/80 text-xs md:text-sm">
-          {activeIndex + 1} / {photos.length}
+      {/* Counter - bottom right */}
+      <div className="absolute bottom-2 md:bottom-4 right-2 md:right-4 bg-black/30 backdrop-blur-sm px-2 md:px-3 py-1 rounded-md">
+        <span className="text-white/60 text-xs">
+          {activeIndex + 1}/{photos.length}
         </span>
       </div>
     </div>
@@ -427,6 +428,8 @@ const Slider3D: React.FC<SliderProps> = ({ photos, onPhotoClick, activeIndex, on
 // ============================================
 // GALLERY PAGE - Clean UI
 // ============================================
+const PASSWORD = 'lena2025!';
+
 const GalleryPage: React.FC = () => {
   const [albums, setAlbums] = useState<Album[]>([]);
   const [activeAlbumIndex, setActiveAlbumIndex] = useState(0);
@@ -436,8 +439,24 @@ const GalleryPage: React.FC = () => {
   const [cinemaMode, setCinemaMode] = useState<{ albumIndex: number; photoIndex: number } | null>(null);
   const [isDownloading, setIsDownloading] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(() => {
+    return sessionStorage.getItem('gallery_auth') === 'true';
+  });
+  const [passwordInput, setPasswordInput] = useState('');
+  const [passwordError, setPasswordError] = useState(false);
 
   const currentAlbum = albums[activeAlbumIndex];
+
+  // Password check
+  const handleLogin = () => {
+    if (passwordInput === PASSWORD) {
+      setIsAuthenticated(true);
+      sessionStorage.setItem('gallery_auth', 'true');
+      setPasswordError(false);
+    } else {
+      setPasswordError(true);
+    }
+  };
 
   // Fetch albums
   const fetchAlbums = useCallback(async () => {
@@ -520,6 +539,58 @@ const GalleryPage: React.FC = () => {
   const openCinemaMode = (photoIndex: number) => {
     setCinemaMode({ albumIndex: activeAlbumIndex, photoIndex });
   };
+
+  // Fullscreen toggle
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen();
+    } else {
+      document.exitFullscreen();
+    }
+  };
+
+  // Password screen
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-black to-gray-900 flex items-center justify-center p-4">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-white/5 backdrop-blur-xl rounded-2xl p-8 w-full max-w-sm border border-white/10"
+        >
+          <div className="flex justify-center mb-6">
+            <div className="p-4 bg-white/10 rounded-full">
+              <Lock className="w-8 h-8 text-white" />
+            </div>
+          </div>
+          <h1 className="text-2xl font-bold text-white text-center mb-2">Galeria</h1>
+          <p className="text-white/50 text-center text-sm mb-6">Wprowadź hasło aby kontynuować</p>
+          <input
+            type="password"
+            value={passwordInput}
+            onChange={(e) => {
+              setPasswordInput(e.target.value);
+              setPasswordError(false);
+            }}
+            onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
+            placeholder="Hasło"
+            className={`w-full px-4 py-3 bg-white/10 border rounded-lg text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-white/30 ${
+              passwordError ? 'border-red-500' : 'border-white/20'
+            }`}
+          />
+          {passwordError && (
+            <p className="text-red-400 text-sm mt-2">Nieprawidłowe hasło</p>
+          )}
+          <button
+            onClick={handleLogin}
+            className="w-full mt-4 py-3 bg-white text-black font-medium rounded-lg hover:bg-white/90 transition-colors"
+          >
+            Wejdź
+          </button>
+        </motion.div>
+      </div>
+    );
+  }
 
   // Close sidebar on mobile when album selected
   const handleAlbumSelect = (index: number) => {
@@ -662,6 +733,16 @@ const GalleryPage: React.FC = () => {
           onClick={() => setSidebarOpen(false)}
         />
       )}
+
+      {/* Fullscreen button - desktop only */}
+      <button
+        onClick={toggleFullscreen}
+        className="fixed top-4 right-4 z-50 p-2 bg-black/50 backdrop-blur-sm rounded-lg hidden md:flex items-center gap-2 text-white/70 hover:text-white hover:bg-black/70 transition-colors"
+        title="Tryb pełnoekranowy"
+      >
+        <Maximize className="w-5 h-5" />
+        <span className="text-sm">Pełny ekran</span>
+      </button>
 
       {/* Main Content - 3D Slider */}
       <main className="md:ml-52 min-h-screen relative z-10 flex items-center justify-center p-4">
