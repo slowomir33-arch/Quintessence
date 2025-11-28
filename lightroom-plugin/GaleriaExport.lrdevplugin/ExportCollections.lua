@@ -24,6 +24,10 @@ local LrExportSession = import 'LrExportSession'
 local LrView = import 'LrView'
 local LrBinding = import 'LrBinding'
 local LrColor = import 'LrColor'
+local LrPrefs = import 'LrPrefs'
+
+-- Preferencje pluginu
+local prefs = LrPrefs.prefsForPlugin()
 
 -- ============================================
 -- TOKENY DO BUDOWANIA NAZWY (kafelki)
@@ -249,6 +253,39 @@ local function buildPreviewString(selectedTokens, customText, albumName, version
   return result .. ".jpg"
 end
 
+-- Funkcja do zapisywania preferencji
+local function savePreferences(tokens, customText, quickTemplate)
+  -- Zapisz tokeny jako string oddzielony przecinkami
+  local tokensString = table.concat(tokens, ",")
+  prefs.savedTokens = tokensString
+  prefs.savedCustomText = customText
+  prefs.savedQuickTemplate = quickTemplate
+end
+
+-- Funkcja do wczytywania preferencji
+local function loadPreferences()
+  local tokens = { "name" }  -- Domyślnie oryginalna nazwa
+  local customText = "MojeZdjecie"
+  local quickTemplate = 1
+  
+  if prefs.savedTokens and prefs.savedTokens ~= "" then
+    tokens = {}
+    for token in string.gmatch(prefs.savedTokens, "([^,]+)") do
+      table.insert(tokens, token)
+    end
+  end
+  
+  if prefs.savedCustomText then
+    customText = prefs.savedCustomText
+  end
+  
+  if prefs.savedQuickTemplate then
+    quickTemplate = prefs.savedQuickTemplate
+  end
+  
+  return tokens, customText, quickTemplate
+end
+
 local function showSelectionDialog(allCollections)
   local selectedCollections = {}
   local namingConfig = {
@@ -259,18 +296,21 @@ local function showSelectionDialog(allCollections)
   LrFunctionContext.callWithContext("selectionDialog", function(dialogContext)
     local props = LrBinding.makePropertyTable(dialogContext)
     
+    -- Wczytaj zapisane ustawienia
+    local savedTokens, savedCustomText, savedQuickTemplate = loadPreferences()
+    
     -- Domyślnie zaznacz wszystkie albumy
     for i = 1, #allCollections do
       props["selected_" .. i] = true
     end
     props.selectAll = true
     
-    -- Aktywne tokeny (tablica ID tokenów w kolejności)
-    props.activeTokens = { "name" }  -- Domyślnie oryginalna nazwa
-    props.customText = "MojeZdjecie"
+    -- Aktywne tokeny (wczytane z preferencji)
+    props.activeTokens = savedTokens
+    props.customText = savedCustomText
     props.filenamePreview = "DSC_1234.jpg"
-    props.activeTokensDisplay = "📷 Oryginalna nazwa"
-    props.quickTemplate = 1
+    props.activeTokensDisplay = ""
+    props.quickTemplate = savedQuickTemplate
     
     -- Funkcja odświeżająca wyświetlanie aktywnych tokenów i podgląd
     local function refreshDisplay()
@@ -346,6 +386,9 @@ local function showSelectionDialog(allCollections)
     props:addObserver("quickTemplate", function()
       applyQuickTemplate(props.quickTemplate)
     end)
+    
+    -- Odśwież podgląd z wczytanymi ustawieniami
+    refreshDisplay()
     
     local f = LrView.osFactory()
     
@@ -551,6 +594,9 @@ local function showSelectionDialog(allCollections)
         table.insert(namingConfig.tokens, t)
       end
       namingConfig.customText = props.customText
+      
+      -- Zapisz ustawienia do preferencji (zapamiętaj na przyszłość)
+      savePreferences(namingConfig.tokens, namingConfig.customText, props.quickTemplate)
     end
   end)
   
