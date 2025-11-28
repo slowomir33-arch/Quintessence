@@ -1,6 +1,6 @@
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
-import type { Photo } from '@/types';
+import type { Photo, Album } from '@/types';
 
 /**
  * Downloads all photos from an album as a ZIP file
@@ -113,4 +113,44 @@ export function formatFileSize(bytes: number): string {
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+/**
+ * Downloads a single album as ZIP
+ */
+export async function downloadAlbum(album: Album): Promise<void> {
+  await downloadAlbumAsZip(album.photos, album.name);
+}
+
+/**
+ * Downloads multiple albums as a single ZIP
+ */
+export async function downloadMultipleAlbums(albums: Album[]): Promise<void> {
+  const zip = new JSZip();
+
+  for (const album of albums) {
+    const folder = zip.folder(album.name);
+    if (!folder) continue;
+
+    for (const photo of album.photos) {
+      try {
+        const response = await fetch(photo.src);
+        if (!response.ok) continue;
+        const blob = await response.blob();
+        
+        const urlParts = photo.src.split('/');
+        let filename = urlParts[urlParts.length - 1].split('?')[0];
+        if (!filename.includes('.')) {
+          filename = `photo.jpg`;
+        }
+        
+        folder.file(filename, blob);
+      } catch (e) {
+        console.warn(`Failed to fetch ${photo.src}`, e);
+      }
+    }
+  }
+
+  const content = await zip.generateAsync({ type: 'blob' });
+  saveAs(content, 'galeria.zip');
 }
