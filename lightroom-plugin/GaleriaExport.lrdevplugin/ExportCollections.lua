@@ -130,7 +130,13 @@ local function ensureFolder(folderPath)
 end
 
 -- SZYBKI EKSPORT - jedna sesja dla wszystkich zdjęć
+-- Zwraca liczbę wyeksportowanych zdjęć i czy anulowano
 local function exportPhotosBatch(photos, exportSettings, destinationFolder, namingTokens, progressScope, progressBase, progressTotal)
+  -- Sprawdź czy już anulowano przed rozpoczęciem
+  if progressScope and progressScope:isCanceled() then
+    return 0, true
+  end
+  
   -- Przygotuj ustawienia
   local settings = {}
   for k, v in pairs(exportSettings) do
@@ -155,8 +161,15 @@ local function exportPhotosBatch(photos, exportSettings, destinationFolder, nami
   
   local photoCount = #photos
   local exported = 0
+  local wasCanceled = false
   
   for _, rendition in exportSession:renditions() do
+    -- Sprawdź czy użytkownik anulował
+    if progressScope and progressScope:isCanceled() then
+      wasCanceled = true
+      break
+    end
+    
     rendition:waitForRender()
     exported = exported + 1
     
@@ -166,7 +179,7 @@ local function exportPhotosBatch(photos, exportSettings, destinationFolder, nami
     end
   end
   
-  return exported
+  return exported, wasCanceled
 end
 
 -- ============================================
@@ -551,14 +564,22 @@ end
 local function doExportWithProgress(selectedCollections, destinationFolder, namingConfig)
   LrFunctionContext.callWithContext("exportProgress", function(context)
     local progressScope = LrProgressScope({
-      title = "Eksport albumów do Galeria Online",
+      title = "Eksport albumów do Galeria Online (kliknij X aby anulować)",
       functionContext = context,
+      canBeCanceled = true,  -- Wyraźnie włącz możliwość anulowania
     })
     
     local totalCollections = #selectedCollections
     local exportedPhotos = 0
+    local wasCanceled = false
     
     for collectionIndex, collection in ipairs(selectedCollections) do
+      -- Sprawdź anulowanie przed rozpoczęciem albumu
+      if progressScope:isCanceled() then
+        wasCanceled = true
+        break
+      end
+      
       local collectionName = collection:getName()
       local photos = collection:getPhotos()
       
@@ -576,27 +597,44 @@ local function doExportWithProgress(selectedCollections, destinationFolder, nami
         if lightNamingTokens == "" then
           lightNamingTokens = "{{image_name}}"
         end
-        progressScope:setCaption(string.format("%s - Light (%d/%d)", collectionName, collectionIndex, totalCollections))
+        progressScope:setCaption(string.format("%s - Light (%d/%d) [X = anuluj]", collectionName, collectionIndex, totalCollections))
         local baseProgress = (collectionIndex - 1) / totalCollections
-        exportPhotosBatch(photos, EXPORT_SETTINGS.light, lightFolder, lightNamingTokens, progressScope, baseProgress, 0.5 / totalCollections)
+        local lightExported, lightCanceled = exportPhotosBatch(photos, EXPORT_SETTINGS.light, lightFolder, lightNamingTokens, progressScope, baseProgress, 0.5 / totalCollections)
+        
+        if lightCanceled then
+          wasCanceled = true
+          break
+        end
         
         -- MAX - batch export (z wersją "max")
         local maxNamingTokens = buildTokenString(namingConfig.tokens, namingConfig.customText, collectionName, "max")
         if maxNamingTokens == "" then
           maxNamingTokens = "{{image_name}}"
         end
-        progressScope:setCaption(string.format("%s - Max (%d/%d)", collectionName, collectionIndex, totalCollections))
-        exportPhotosBatch(photos, EXPORT_SETTINGS.max, maxFolder, maxNamingTokens, progressScope, baseProgress + 0.5 / totalCollections, 0.5 / totalCollections)
+        progressScope:setCaption(string.format("%s - Max (%d/%d) [X = anuluj]", collectionName, collectionIndex, totalCollections))
+        local maxExported, maxCanceled = exportPhotosBatch(photos, EXPORT_SETTINGS.max, maxFolder, maxNamingTokens, progressScope, baseProgress + 0.5 / totalCollections, 0.5 / totalCollections)
+        
+        if maxCanceled then
+          wasCanceled = true
+          break
+        end
         
         exportedPhotos = exportedPhotos + #photos
       end
-      
-      if progressScope:isCanceled() then break end
     end
     
     progressScope:done()
     
-    if not progressScope:isCanceled() then
+    if wasCanceled or progressScope:isCanceled() then
+      LrDialogs.message(
+        "Eksport anulowany",
+        string.format(
+          "Eksport został przerwany.\n\nWyeksportowano %d zdjęć przed anulowaniem.",
+          exportedPhotos * 2
+        ),
+        "warning"
+      )
+    else
       LrDialogs.message(
         "Eksport zakończony!",
         string.format(
