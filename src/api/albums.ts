@@ -4,7 +4,15 @@ import type { Album, Photo } from '@/types';
 // API CONFIGURATION
 // ============================================
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const DEFAULT_API_URL = (() => {
+  if (typeof window !== 'undefined') {
+    const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    return isLocalhost ? 'http://localhost:3001' : 'https://api.lenaparty.pl';
+  }
+  return 'https://api.lenaparty.pl';
+})();
+
+const API_BASE_URL = import.meta.env.VITE_API_URL || DEFAULT_API_URL;
 
 // ============================================
 // HELPER FUNCTIONS

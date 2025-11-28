@@ -1,10 +1,10 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import { AnimatePresence, motion, useMotionValue, PanInfo } from 'framer-motion';
+import { AnimatePresence, motion, PanInfo } from 'framer-motion';
 import { 
   Settings, Upload, Camera, RefreshCw, Wifi, WifiOff, 
   Download, CheckSquare, Square, ChevronLeft, ChevronRight, X,
-  Image, Menu, Maximize, Lock, Eye, EyeOff, RotateCcw
+  Image, Menu, Maximize, Lock, Eye, EyeOff, RotateCcw, LogOut
 } from 'lucide-react';
 
 // Components
@@ -36,6 +36,31 @@ const useIsMobile = (): boolean => {
   }, []);
   
   return isMobile;
+};
+
+// ============================================
+// HOOK: useOrientation - Detect landscape vs portrait
+// ============================================
+const useOrientation = (): 'landscape' | 'portrait' => {
+  const [orientation, setOrientation] = useState<'landscape' | 'portrait'>(() => 
+    typeof window !== 'undefined' && window.innerWidth > window.innerHeight ? 'landscape' : 'portrait'
+  );
+  
+  useEffect(() => {
+    const checkOrientation = () => {
+      setOrientation(window.innerWidth > window.innerHeight ? 'landscape' : 'portrait');
+    };
+    
+    checkOrientation();
+    window.addEventListener('resize', checkOrientation);
+    window.addEventListener('orientationchange', checkOrientation);
+    return () => {
+      window.removeEventListener('resize', checkOrientation);
+      window.removeEventListener('orientationchange', checkOrientation);
+    };
+  }, []);
+  
+  return orientation;
 };
 
 // ============================================
@@ -102,10 +127,41 @@ const MobileCinemaMode: React.FC<MobileCinemaModeProps> = ({
   const [imageLoaded, setImageLoaded] = useState(false);
   const [scale, setScale] = useState(1);
   const [position, setPosition] = useState({ x: 0, y: 0 });
+  const [_isFullscreen, setIsFullscreen] = useState(() => typeof document !== 'undefined' && !!document.fullscreenElement);
   const lastTapRef = useRef(0);
   const initialDistance = useRef(0);
   const initialScale = useRef(1);
+  const isPinching = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      const isNowFullscreen = !!document.fullscreenElement;
+      setIsFullscreen(isNowFullscreen);
+      
+      // Fix white bar after exiting fullscreen on mobile
+      if (!isNowFullscreen) {
+        setTimeout(() => {
+          window.scrollTo(0, 0);
+          document.body.style.height = '100vh';
+          document.body.style.height = '100dvh';
+          requestAnimationFrame(() => {
+            document.body.style.height = '';
+          });
+        }, 100);
+      }
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
+
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen();
+    } else {
+      document.exitFullscreen();
+    }
+  };
 
   const currentAlbum = albums[albumIndex];
   const currentPhoto = currentAlbum?.photos[photoIndex];
@@ -150,13 +206,16 @@ const MobileCinemaMode: React.FC<MobileCinemaModeProps> = ({
     lastTapRef.current = now;
   }, [scale]);
 
-  // Pinch to zoom
+  // Pinch to zoom - zachowuje pozycję po puszczeniu
   const handleTouchStart = (e: React.TouchEvent) => {
     if (e.touches.length === 2) {
+      isPinching.current = true;
       const dx = e.touches[0].clientX - e.touches[1].clientX;
       const dy = e.touches[0].clientY - e.touches[1].clientY;
       initialDistance.current = Math.hypot(dx, dy);
       initialScale.current = scale;
+    } else if (e.touches.length === 1) {
+      isPinching.current = false;
     }
   };
 
@@ -165,9 +224,25 @@ const MobileCinemaMode: React.FC<MobileCinemaModeProps> = ({
       const dx = e.touches[0].clientX - e.touches[1].clientX;
       const dy = e.touches[0].clientY - e.touches[1].clientY;
       const distance = Math.hypot(dx, dy);
-      const newScale = Math.min(5, Math.max(1, initialScale.current * (distance / initialDistance.current)));
-      setScale(newScale);
+      const rawScale = initialScale.current * (distance / initialDistance.current);
+      const clampedScale = Math.min(5, Math.max(1, rawScale));
+      const normalizedScale = clampedScale <= 1.01 ? 1 : clampedScale;
+      setScale(normalizedScale);
+      if (normalizedScale === 1) {
+        setPosition({ x: 0, y: 0 });
+      }
     }
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (isPinching.current) {
+      if (e.touches.length === 0) {
+        isPinching.current = false;
+      }
+      lastTapRef.current = 0;
+      return;
+    }
+    handleTap();
   };
 
   // Swipe navigation (when not zoomed)
@@ -183,22 +258,44 @@ const MobileCinemaMode: React.FC<MobileCinemaModeProps> = ({
 
   const handlePanEnd = (_e: any, info: PanInfo) => {
     if (scale === 1) {
-      // Swipe navigation
-      if (Math.abs(info.velocity.x) > 300 || Math.abs(info.offset.x) > 100) {
-        if (info.offset.x > 0) {
-          goToFlatIndex(currentFlatIndex - 1);
-        } else {
-          goToFlatIndex(currentFlatIndex + 1);
-        }
+      const offsetX = info.offset.x;
+      const offsetY = info.offset.y;
+      const velocityX = info.velocity.x;
+      
+      // Check if vertical swipe is stronger (for portrait mode)
+      if (Math.abs(offsetY) > Math.abs(offsetX) && Math.abs(offsetY) > 60) {
+        // Swipe up = next, swipe down = prev
+        const direction = offsetY < 0 ? 1 : -1;
+        goToFlatIndex(currentFlatIndex + direction);
+        return;
+      }
+      
+      // Horizontal swipe
+      if (Math.abs(velocityX) > 250 || Math.abs(offsetX) > 80) {
+        const direction = offsetX > 0 ? -1 : 1;
+        const offsetSteps = Math.round(Math.abs(offsetX) / 120);
+        const velocitySteps = Math.round(Math.abs(velocityX) / 700);
+        let totalSteps = offsetSteps + velocitySteps;
+        if (totalSteps === 0) totalSteps = 1;
+        goToFlatIndex(currentFlatIndex + direction * totalSteps);
       }
     } else {
-      // Constrain position when zoomed
-      const maxX = (scale - 1) * 150;
-      const maxY = (scale - 1) * 100;
-      setPosition({
-        x: Math.min(maxX, Math.max(-maxX, position.x)),
-        y: Math.min(maxY, Math.max(-maxY, position.y))
-      });
+      const bounds = containerRef.current?.getBoundingClientRect();
+      if (!bounds) return;
+      const maxX = ((scale - 1) * bounds.width) / 2;
+      const maxY = ((scale - 1) * bounds.height) / 2;
+      setPosition(prev => ({
+        x: Math.min(Math.max(prev.x, -maxX), maxX),
+        y: Math.min(Math.max(prev.y, -maxY), maxY),
+      }));
+    }
+  };
+
+  // Handle tap on backdrop (outside photo) to close
+  const handleBackdropClick = (e: React.MouseEvent) => {
+    // Only close if clicking directly on backdrop, not on photo
+    if (e.target === e.currentTarget) {
+      onClose();
     }
   };
 
@@ -213,27 +310,40 @@ const MobileCinemaMode: React.FC<MobileCinemaModeProps> = ({
       exit={{ opacity: 0 }}
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
     >
-      {/* Top bar */}
-      <div className="absolute top-0 left-0 right-0 z-20 flex items-center justify-between p-3 bg-gradient-to-b from-black/60 to-transparent">
-        <div className="text-white/70 text-xs bg-black/30 px-2 py-1 rounded">
-          {currentFlatIndex + 1} / {allPhotos.length}
+      {/* Top bar - minimalistyczny */}
+      <div className="absolute top-0 left-0 right-0 z-20 p-3 flex items-center justify-between">
+        {/* Counter */}
+        <div className="bg-black/40 backdrop-blur-sm px-2 py-1 rounded-lg">
+          <span className="text-white/70 text-xs">{currentFlatIndex + 1} / {allPhotos.length}</span>
         </div>
-        <motion.button
-          className="p-2 bg-black/30 rounded-full"
-          onClick={onClose}
-          whileTap={{ scale: 0.9 }}
-        >
-          <X className="w-5 h-5 text-white" />
-        </motion.button>
+        
+        {/* Right controls */}
+        <div className="flex items-center gap-2">
+          <motion.button
+            className="p-2 bg-black/40 backdrop-blur-sm rounded-full"
+            onClick={toggleFullscreen}
+            whileTap={{ scale: 0.9 }}
+          >
+            <Maximize className="w-4 h-4 text-white/80" />
+          </motion.button>
+          <motion.button
+            className="p-2 bg-black/40 backdrop-blur-sm rounded-full"
+            onClick={onClose}
+            whileTap={{ scale: 0.9 }}
+          >
+            <X className="w-5 h-5 text-white/80" />
+          </motion.button>
+        </div>
       </div>
 
       {/* Photo with gestures */}
       <motion.div
-        className="flex-1 flex items-center justify-center overflow-hidden"
+        className="flex-1 flex items-center justify-center overflow-hidden p-4"
         onPan={handlePan}
         onPanEnd={handlePanEnd}
-        onTouchEnd={handleTap}
+        onClick={handleBackdropClick}
       >
         {!imageLoaded && (
           <div className="absolute inset-0 flex items-center justify-center">
@@ -245,7 +355,7 @@ const MobileCinemaMode: React.FC<MobileCinemaModeProps> = ({
           key={`${albumIndex}-${photoIndex}`}
           src={currentPhoto.src}
           alt=""
-          className="max-w-full max-h-full object-contain"
+          className="max-w-full max-h-full object-contain pointer-events-none"
           style={{
             scale,
             x: position.x,
@@ -259,26 +369,29 @@ const MobileCinemaMode: React.FC<MobileCinemaModeProps> = ({
         />
       </motion.div>
 
-      {/* Bottom progress bar */}
-      <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/60 to-transparent">
-        <div className="h-1 bg-white/20 rounded-full overflow-hidden">
+      {/* Bottom progress bar - minimalistyczny, bez instrukcji */}
+      <div className="absolute bottom-0 left-0 right-0 h-1">
+        <div className="h-full bg-white/10">
           <motion.div
-            className="h-full bg-white/60 rounded-full"
+            className="h-full bg-white/40"
             initial={{ width: 0 }}
             animate={{ width: `${((currentFlatIndex + 1) / allPhotos.length) * 100}%` }}
             transition={{ type: 'spring', stiffness: 300, damping: 30 }}
           />
         </div>
-        <div className="mt-2 text-center text-white/40 text-xs">
-          {scale > 1 ? 'Podwójne tap = reset zoom' : 'Przesuń ← → • Podwójne tap = zoom'}
-        </div>
+        {/* Świetlisty wskaźnik */}
+        <motion.div
+          className="absolute top-1/2 -translate-y-1/2 w-2 h-2 bg-white rounded-full shadow-[0_0_8px_2px_rgba(255,255,255,0.6)]"
+          style={{ left: `${((currentFlatIndex + 1) / allPhotos.length) * 100}%` }}
+          transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+        />
       </div>
     </motion.div>
   );
 };
 
 // ============================================
-// MOBILE GALLERY VIEW - Swipeable cards with album thumbnails on right
+// MOBILE GALLERY VIEW - Orientation-aware: Landscape slider / Portrait masonry
 // ============================================
 interface MobileGalleryProps {
   albums: Album[];
@@ -289,6 +402,442 @@ interface MobileGalleryProps {
   onPhotoClick: (index: number) => void;
 }
 
+// Helper: Generate random size multiplier for masonry (seeded by photo id for consistency)
+const getRandomSize = (photoId: string): number => {
+  let hash = 0;
+  for (let i = 0; i < photoId.length; i++) {
+    hash = ((hash << 5) - hash) + photoId.charCodeAt(i);
+    hash = hash & hash;
+  }
+  // Range: 0.5 to 1.3
+  return 0.5 + (Math.abs(hash) % 80) / 100;
+};
+
+// ============================================
+// MOBILE LANDSCAPE SLIDER - 3D effect like desktop
+// ============================================
+interface MobileLandscapeSliderProps {
+  photos: Photo[];
+  activeIndex: number;
+  onActiveChange: (index: number) => void;
+  onPhotoClick: (index: number) => void;
+}
+
+const MobileLandscapeSlider: React.FC<MobileLandscapeSliderProps> = ({
+  photos,
+  activeIndex,
+  onActiveChange,
+  onPhotoClick,
+}) => {
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStartX = useRef(0);
+
+  const handlePrev = useCallback(() => {
+    if (photos.length === 0) return;
+    const newIndex = (activeIndex - 1 + photos.length) % photos.length;
+    onActiveChange(newIndex);
+  }, [activeIndex, photos.length, onActiveChange]);
+
+  const handleNext = useCallback(() => {
+    if (photos.length === 0) return;
+    const newIndex = (activeIndex + 1) % photos.length;
+    onActiveChange(newIndex);
+  }, [activeIndex, photos.length, onActiveChange]);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    setIsDragging(true);
+    dragStartX.current = e.touches[0].clientX;
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (!isDragging) return;
+    const diff = dragStartX.current - e.changedTouches[0].clientX;
+    if (Math.abs(diff) > 40) {
+      if (diff > 0) handleNext();
+      else handlePrev();
+    }
+    setIsDragging(false);
+  };
+
+  const getCardStyle = (index: number): React.CSSProperties => {
+    const diff = (index - activeIndex + photos.length) % photos.length;
+    const adjustedDiff = diff > photos.length / 2 ? diff - photos.length : diff;
+
+    if (adjustedDiff === 0) {
+      return {
+        transform: 'translateX(0%) translateZ(80px) scale(1.04)',
+        opacity: 1,
+        zIndex: 30,
+        filter: 'blur(0px)',
+      };
+    } else if (adjustedDiff === 1) {
+      return {
+        transform: 'translateX(75%) translateZ(-40px) scale(0.45) rotateY(-25deg)',
+        opacity: 0.5,
+        zIndex: 20,
+        filter: 'blur(2px)',
+      };
+    } else if (adjustedDiff === -1) {
+      return {
+        transform: 'translateX(-75%) translateZ(-40px) scale(0.45) rotateY(25deg)',
+        opacity: 0.5,
+        zIndex: 20,
+        filter: 'blur(2px)',
+      };
+    }
+    return {
+      transform: adjustedDiff > 0 ? 'translateX(130%) scale(0.3)' : 'translateX(-130%) scale(0.3)',
+      opacity: 0,
+      zIndex: 10,
+    };
+  };
+
+  if (photos.length === 0) return null;
+
+  return (
+    <div className="w-full h-full flex items-center justify-center">
+      {/* Navigation buttons */}
+      {photos.length > 1 && (
+        <>
+          <button
+            onClick={handlePrev}
+            className="absolute left-2 top-1/2 -translate-y-1/2 z-50 p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors backdrop-blur-sm"
+          >
+            <ChevronLeft className="w-5 h-5 text-white" />
+          </button>
+          <button
+            onClick={handleNext}
+            className="absolute right-2 top-1/2 -translate-y-1/2 z-50 p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors backdrop-blur-sm"
+          >
+            <ChevronRight className="w-5 h-5 text-white" />
+          </button>
+        </>
+      )}
+
+      {/* 3D Slider */}
+      <div
+        className="relative w-full h-full flex items-center justify-center select-none"
+        style={{ perspective: '1000px' }}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+      >
+        {photos.map((photo, index) => (
+          <div
+            key={photo.id}
+            className="absolute w-full max-w-[55%] transition-all duration-400 ease-out cursor-pointer"
+            style={{
+              ...getCardStyle(index),
+              transformStyle: 'preserve-3d',
+              maxHeight: '70%',
+            }}
+            onClick={() => index === activeIndex && onPhotoClick(activeIndex)}
+          >
+            <div className="relative rounded-lg overflow-hidden shadow-2xl shadow-black/50">
+              <img
+                src={photo.src}
+                alt={photo.title || ''}
+                className="w-full h-full object-cover"
+                style={{ maxHeight: '70vh', aspectRatio: '3/2' }}
+                draggable={false}
+                loading="lazy"
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+// ============================================
+// MOBILE PORTRAIT MASONRY - Floating grid with fade mask
+// ============================================
+interface MobilePortraitMasonryProps {
+  photos: Photo[];
+  onPhotoClick: (index: number) => void;
+  activePhotoIndex: number;
+  onActiveChange: (index: number) => void;
+}
+
+const MobilePortraitMasonry: React.FC<MobilePortraitMasonryProps> = ({
+  photos,
+  onPhotoClick,
+}) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [scrollY, setScrollY] = useState(0);
+  const [isUserScrolling, setIsUserScrolling] = useState(false);
+  const [isDrifting, setIsDrifting] = useState(false);
+  const driftAnimationRef = useRef<number | null>(null);
+  const driftStartTime = useRef<number>(0);
+  const driftStartScroll = useRef<number>(0);
+  const userScrollTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scrollbarRef = useRef<HTMLDivElement>(null);
+  const isScrollbarDragging = useRef(false);
+
+  const DRIFT_DURATION = 15000; // 15 seconds
+  const PAUSE_AFTER_INTERACTION = 5000; // 5 seconds
+
+  // Calculate total height and photo positions
+  const baseSize = 100; // Base size in pixels for calculations
+  const columnCount = 3;
+  const gap = 6;
+
+  const photoData = useMemo(() => {
+    const columns: { height: number; items: { photo: Photo; index: number; size: number; top: number }[] }[] = 
+      Array.from({ length: columnCount }, () => ({ height: 0, items: [] }));
+
+    photos.forEach((photo, index) => {
+      const size = getRandomSize(photo.id);
+      const height = baseSize * size;
+      
+      // Find shortest column
+      let shortestCol = 0;
+      for (let i = 1; i < columnCount; i++) {
+        if (columns[i].height < columns[shortestCol].height) {
+          shortestCol = i;
+        }
+      }
+      
+      columns[shortestCol].items.push({
+        photo,
+        index,
+        size,
+        top: columns[shortestCol].height,
+      });
+      columns[shortestCol].height += height + gap;
+    });
+
+    return columns;
+  }, [photos]);
+
+  const totalHeight = useMemo(() => {
+    return Math.max(...photoData.map(col => col.height));
+  }, [photoData]);
+
+  // Ease in-out function
+  const easeInOutCubic = (t: number): number => {
+    return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+  };
+
+  // Start drift animation
+  const startDrift = useCallback(() => {
+    if (!containerRef.current || isUserScrolling) return;
+    
+    setIsDrifting(true);
+    driftStartTime.current = performance.now();
+    driftStartScroll.current = containerRef.current.scrollTop;
+    
+    const maxScroll = totalHeight - containerRef.current.clientHeight;
+    const scrollDistance = maxScroll * 0.3; // Drift 30% of scrollable area
+    
+    const animate = (currentTime: number) => {
+      if (!containerRef.current || isUserScrolling) {
+        setIsDrifting(false);
+        return;
+      }
+      
+      const elapsed = currentTime - driftStartTime.current;
+      const progress = Math.min(elapsed / DRIFT_DURATION, 1);
+      const easedProgress = easeInOutCubic(progress);
+      
+      let newScroll = driftStartScroll.current + scrollDistance * easedProgress;
+      
+      // Loop back if reaching end
+      if (newScroll >= maxScroll) {
+        newScroll = newScroll - maxScroll;
+      }
+      
+      containerRef.current.scrollTop = newScroll;
+      
+      if (progress < 1) {
+        driftAnimationRef.current = requestAnimationFrame(animate);
+      } else {
+        // Drift complete, start new one
+        setIsDrifting(false);
+        driftAnimationRef.current = requestAnimationFrame(() => startDrift());
+      }
+    };
+    
+    driftAnimationRef.current = requestAnimationFrame(animate);
+  }, [isUserScrolling, totalHeight]);
+
+  // Auto-start drift on mount and after user interaction pause
+  useEffect(() => {
+    if (!isUserScrolling && !isDrifting) {
+      const timeout = setTimeout(() => {
+        startDrift();
+      }, 500);
+      return () => clearTimeout(timeout);
+    }
+    
+    return () => {
+      if (driftAnimationRef.current) {
+        cancelAnimationFrame(driftAnimationRef.current);
+      }
+    };
+  }, [isUserScrolling, isDrifting, startDrift]);
+
+  // Handle user interaction
+  const handleTouchStart = () => {
+    setIsUserScrolling(true);
+    setIsDrifting(false);
+    if (driftAnimationRef.current) {
+      cancelAnimationFrame(driftAnimationRef.current);
+    }
+    if (userScrollTimeout.current) {
+      clearTimeout(userScrollTimeout.current);
+    }
+  };
+
+  const handleTouchEnd = () => {
+    userScrollTimeout.current = setTimeout(() => {
+      setIsUserScrolling(false);
+      // Will trigger useEffect to start drift again
+    }, PAUSE_AFTER_INTERACTION);
+  };
+
+  const handleScroll = () => {
+    if (containerRef.current) {
+      setScrollY(containerRef.current.scrollTop);
+    }
+  };
+
+  // Scrollbar navigation
+  const updateScrollFromScrollbar = useCallback((clientY: number) => {
+    if (!scrollbarRef.current || !containerRef.current) return;
+    const rect = scrollbarRef.current.getBoundingClientRect();
+    const ratio = (clientY - rect.top) / rect.height;
+    const clamped = Math.min(Math.max(ratio, 0), 1);
+    const maxScroll = totalHeight - containerRef.current.clientHeight;
+    containerRef.current.scrollTop = clamped * maxScroll;
+  }, [totalHeight]);
+
+  useEffect(() => {
+    const handlePointerMove = (event: PointerEvent) => {
+      if (!isScrollbarDragging.current) return;
+      event.preventDefault();
+      updateScrollFromScrollbar(event.clientY);
+    };
+
+    const handlePointerUp = () => {
+      isScrollbarDragging.current = false;
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+    };
+  }, [updateScrollFromScrollbar]);
+
+  const handleScrollbarPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    isScrollbarDragging.current = true;
+    setIsUserScrolling(true);
+    updateScrollFromScrollbar(event.clientY);
+    
+    if (userScrollTimeout.current) {
+      clearTimeout(userScrollTimeout.current);
+    }
+    userScrollTimeout.current = setTimeout(() => {
+      setIsUserScrolling(false);
+    }, 3000);
+  };
+
+  // Calculate visibility for fade effect
+  const getPhotoOpacity = (top: number, height: number): number => {
+    if (!containerRef.current) return 1;
+    const viewportHeight = containerRef.current.clientHeight;
+    const photoCenter = top + height / 2 - scrollY;
+    const viewportCenter = viewportHeight / 2;
+    const distance = Math.abs(photoCenter - viewportCenter);
+    const maxDistance = viewportHeight / 2;
+    
+    // Full opacity in middle 60%, fade at edges
+    if (distance < maxDistance * 0.3) return 1;
+    if (distance > maxDistance) return 0;
+    return 1 - ((distance - maxDistance * 0.3) / (maxDistance * 0.7));
+  };
+
+  const scrollProgress = containerRef.current 
+    ? scrollY / Math.max(totalHeight - containerRef.current.clientHeight, 1) 
+    : 0;
+
+  return (
+    <div className="relative w-full h-full overflow-hidden">
+      {/* Gradient masks for fade effect */}
+      <div className="absolute top-0 left-0 right-0 h-24 bg-gradient-to-b from-black via-black/80 to-transparent z-10 pointer-events-none" />
+      <div className="absolute bottom-0 left-0 right-0 h-24 bg-gradient-to-t from-black via-black/80 to-transparent z-10 pointer-events-none" />
+
+      {/* Masonry container */}
+      <div
+        ref={containerRef}
+        className="w-full h-full overflow-y-auto scrollbar-hide px-2"
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+        onScroll={handleScroll}
+        style={{ scrollBehavior: isUserScrolling ? 'auto' : 'smooth' }}
+      >
+        <div className="relative" style={{ height: totalHeight + 100 }}>
+          <div className="flex gap-1.5 pt-16 pb-16">
+            {photoData.map((column, colIndex) => (
+              <div 
+                key={colIndex} 
+                className="flex-1 flex flex-col gap-1.5"
+              >
+                {column.items.map(({ photo, index, size, top }) => {
+                  const height = baseSize * size;
+                  const opacity = getPhotoOpacity(top, height);
+                  
+                  return (
+                    <motion.div
+                      key={photo.id}
+                      className="relative overflow-hidden rounded-lg cursor-pointer"
+                      style={{ 
+                        height,
+                        opacity,
+                      }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={() => onPhotoClick(index)}
+                    >
+                      <img
+                        src={photo.thumbnail || photo.src}
+                        alt=""
+                        className="w-full h-full object-cover"
+                        loading="lazy"
+                        draggable={false}
+                      />
+                    </motion.div>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Vertical scrollbar */}
+      <div 
+        ref={scrollbarRef}
+        className="absolute right-2 top-20 bottom-20 w-1 bg-white/10 rounded-full z-20 cursor-pointer"
+        onPointerDown={handleScrollbarPointerDown}
+      >
+        <motion.div
+          className="absolute w-3 h-3 bg-white rounded-full shadow-[0_0_8px_2px_rgba(255,255,255,0.5)] -left-1"
+          style={{ top: `calc(${scrollProgress * 100}% - 6px)` }}
+          whileHover={{ scale: 1.3 }}
+          whileTap={{ scale: 1.1 }}
+        />
+      </div>
+    </div>
+  );
+};
+
+// ============================================
+// MOBILE GALLERY - Main wrapper with orientation detection
+// ============================================
 const MobileGallery: React.FC<MobileGalleryProps> = ({
   albums,
   activeAlbumIndex,
@@ -297,36 +846,38 @@ const MobileGallery: React.FC<MobileGalleryProps> = ({
   onPhotoChange,
   onPhotoClick,
 }) => {
+  const orientation = useOrientation();
   const currentAlbum = albums[activeAlbumIndex];
   const photos = currentAlbum?.photos || [];
-  const dragX = useMotionValue(0);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [imageLoaded, setImageLoaded] = useState(false);
-  
-  // Reset image loading state when photo changes
-  useEffect(() => {
-    setImageLoaded(false);
-  }, [activePhotoIndex, activeAlbumIndex]);
+  const [_isFullscreen, setIsFullscreen] = useState(() => typeof document !== 'undefined' && !!document.fullscreenElement);
 
-  const handleDragEnd = (_e: any, info: PanInfo) => {
-    const threshold = 50;
-    const velocity = info.velocity.x;
-    const offset = info.offset.x;
-    
-    if (Math.abs(velocity) > 500 || Math.abs(offset) > threshold) {
-      if (offset > 0 || velocity > 500) {
-        // Swipe right - previous
-        if (activePhotoIndex > 0) {
-          onPhotoChange(activePhotoIndex - 1);
-        }
-      } else {
-        // Swipe left - next
-        if (activePhotoIndex < photos.length - 1) {
-          onPhotoChange(activePhotoIndex + 1);
-        }
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      const isNowFullscreen = !!document.fullscreenElement;
+      setIsFullscreen(isNowFullscreen);
+      
+      // Fix white bar after exiting fullscreen on mobile
+      if (!isNowFullscreen) {
+        setTimeout(() => {
+          window.scrollTo(0, 0);
+          document.body.style.height = '100vh';
+          document.body.style.height = '100dvh';
+          requestAnimationFrame(() => {
+            document.body.style.height = '';
+          });
+        }, 100);
       }
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
+
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen();
+    } else {
+      document.exitFullscreen();
     }
-    dragX.set(0);
   };
 
   if (!currentAlbum || photos.length === 0) {
@@ -341,108 +892,130 @@ const MobileGallery: React.FC<MobileGalleryProps> = ({
   }
 
   return (
-    <div className="h-screen flex relative">
-      {/* Main photo area - takes full screen minus album strip */}
-      <div 
-        ref={containerRef}
-        className="flex-1 flex flex-col relative overflow-hidden"
-      >
-        {/* Album name badge - top left */}
-        <div className="absolute top-4 left-4 z-10 bg-black/60 backdrop-blur-md px-3 py-2 rounded-xl">
-          <p className="text-white text-sm font-semibold">{currentAlbum.name}</p>
-          <p className="text-white/60 text-xs">{activePhotoIndex + 1} / {photos.length}</p>
-        </div>
-
-        {/* Swipeable photo - max size with safe margins */}
+    <AnimatePresence mode="wait">
+      {orientation === 'landscape' ? (
         <motion.div
-          className="flex-1 flex items-center justify-center p-3 pt-16 pb-12"
-          drag="x"
-          dragConstraints={{ left: 0, right: 0 }}
-          dragElastic={0.15}
-          onDragEnd={handleDragEnd}
-          style={{ x: dragX }}
-        >
-          {/* Loading spinner */}
-          {!imageLoaded && (
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="w-10 h-10 border-2 border-white/20 border-t-white/60 rounded-full animate-spin" />
-            </div>
-          )}
-          
-          <motion.div
-            key={`${activeAlbumIndex}-${activePhotoIndex}`}
-            className="w-full h-full flex items-center justify-center"
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: imageLoaded ? 1 : 0, scale: 1 }}
-            transition={{ duration: 0.2 }}
-            onClick={() => onPhotoClick(activePhotoIndex)}
-          >
-            <img
-              src={photos[activePhotoIndex]?.src}
-              alt=""
-              className="max-w-full max-h-full w-auto h-auto object-contain rounded-xl shadow-2xl"
-              style={{ 
-                maxHeight: 'calc(100vh - 120px)', // Safe margin from top and bottom
-              }}
-              draggable={false}
-              onLoad={() => setImageLoaded(true)}
-            />
-          </motion.div>
-        </motion.div>
-
-        {/* Swipe hint - appears briefly */}
-        <motion.div 
-          className="absolute bottom-3 left-1/2 -translate-x-1/2 text-white/30 text-xs flex items-center gap-2"
+          key="landscape"
+          className="h-screen flex relative"
           initial={{ opacity: 0 }}
-          animate={{ opacity: [0, 1, 1, 0] }}
-          transition={{ duration: 3, times: [0, 0.1, 0.7, 1], delay: 1 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.3 }}
         >
-          <ChevronLeft className="w-4 h-4" />
-          <span>przesuń</span>
-          <ChevronRight className="w-4 h-4" />
-        </motion.div>
+          {/* Main slider area - 90% */}
+          <div className="flex-1 relative overflow-hidden" style={{ width: '90%' }}>
+            {/* Counter */}
+            <div className="absolute top-3 left-3 z-20 bg-black/50 backdrop-blur-sm px-2 py-1 rounded-lg">
+              <span className="text-white/70 text-xs">
+                {activePhotoIndex + 1} / {photos.length}
+              </span>
+            </div>
 
-        {/* Bottom progress bar */}
-        <div className="absolute bottom-8 left-4 right-20 h-1 bg-white/10 rounded-full overflow-hidden">
-          <motion.div
-            className="h-full bg-white/50 rounded-full"
-            animate={{ width: `${((activePhotoIndex + 1) / photos.length) * 100}%` }}
-            transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-          />
-        </div>
-      </div>
+            {/* Fullscreen toggle */}
+            <button
+              onClick={toggleFullscreen}
+              className="absolute top-3 right-3 z-20 p-1.5 bg-black/50 backdrop-blur-sm rounded-lg text-white/70"
+            >
+              <Maximize className="w-4 h-4" />
+            </button>
 
-      {/* Right side album thumbnails - small, no labels, thumb-reachable */}
-      <div className="w-14 bg-black/40 backdrop-blur-md flex flex-col py-4 gap-2 overflow-y-auto">
-        {albums.map((album, index) => (
-          <motion.button
-            key={album.id}
-            className={`mx-1.5 aspect-square rounded-lg overflow-hidden transition-all ${
-              index === activeAlbumIndex 
-                ? 'ring-2 ring-white shadow-lg scale-105' 
-                : 'opacity-40'
-            }`}
-            onClick={() => {
-              onAlbumChange(index);
-              onPhotoChange(0);
-            }}
-            whileTap={{ scale: 0.85 }}
-          >
-            {album.thumbnail ? (
-              <img
-                src={album.thumbnail}
-                alt=""
-                className="w-full h-full object-cover"
+            {/* 3D Slider */}
+            <div className="w-full h-full pt-2 pb-4 pl-3 pr-2">
+              <MobileLandscapeSlider
+                photos={photos}
+                activeIndex={activePhotoIndex}
+                onActiveChange={onPhotoChange}
+                onPhotoClick={onPhotoClick}
               />
-            ) : (
-              <div className="w-full h-full bg-gray-700 flex items-center justify-center">
-                <Image className="w-3 h-3 text-white/30" />
-              </div>
-            )}
-          </motion.button>
-        ))}
-      </div>
-    </div>
+            </div>
+
+            {/* Bottom progress bar */}
+            <div className="absolute bottom-2 left-4 right-4 h-1 bg-white/10 rounded-full overflow-hidden">
+              <motion.div
+                className="h-full bg-white/40 rounded-full"
+                animate={{ width: `${((activePhotoIndex + 1) / photos.length) * 100}%` }}
+                transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+              />
+            </div>
+          </div>
+
+          {/* Album thumbnails - 10% */}
+          <div className="w-[10%] min-w-[50px] bg-black/50 backdrop-blur-md flex flex-col py-2 gap-1.5 overflow-y-auto">
+            {albums.map((album, index) => (
+              <motion.button
+                key={album.id}
+                className={`mx-1 aspect-square rounded-md overflow-hidden transition-all ${
+                  index === activeAlbumIndex ? 'ring-2 ring-white shadow-lg' : 'opacity-40'
+                }`}
+                onClick={() => {
+                  onAlbumChange(index);
+                  onPhotoChange(0);
+                }}
+                whileTap={{ scale: 0.85 }}
+              >
+                {album.thumbnail ? (
+                  <img src={album.thumbnail} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full bg-gray-700 flex items-center justify-center">
+                    <Image className="w-3 h-3 text-white/30" />
+                  </div>
+                )}
+              </motion.button>
+            ))}
+          </div>
+        </motion.div>
+      ) : (
+        <motion.div
+          key="portrait"
+          className="h-screen relative"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.3 }}
+        >
+          {/* Album selector at top */}
+          <div className="absolute top-0 left-0 right-0 z-20 pt-4 pb-2 px-[22%] bg-gradient-to-b from-black via-black/80 to-transparent">
+            <div className="flex gap-2 overflow-x-auto py-1 scrollbar-hide justify-center">
+              {albums.map((album, index) => (
+                <motion.button
+                  key={album.id}
+                  className={`flex-shrink-0 w-12 h-12 rounded-lg overflow-hidden transition-all ${
+                    index === activeAlbumIndex ? 'ring-2 ring-white shadow-lg' : 'opacity-40'
+                  }`}
+                  onClick={() => {
+                    onAlbumChange(index);
+                    onPhotoChange(0);
+                  }}
+                  whileTap={{ scale: 0.85 }}
+                >
+                  {album.thumbnail ? (
+                    <img src={album.thumbnail} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full bg-gray-700 flex items-center justify-center">
+                      <Image className="w-3 h-3 text-white/30" />
+                    </div>
+                  )}
+                </motion.button>
+              ))}
+            </div>
+            <button
+              onClick={toggleFullscreen}
+              className="p-2 bg-black/50 backdrop-blur-sm rounded-lg text-white/70"
+            >
+              <Maximize className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Masonry grid */}
+          <MobilePortraitMasonry
+            photos={photos}
+            activePhotoIndex={activePhotoIndex}
+            onActiveChange={onPhotoChange}
+            onPhotoClick={onPhotoClick}
+          />
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 };
 
@@ -469,10 +1042,10 @@ const CinemaMode: React.FC<CinemaModeProps> = ({
   const [isFullscreen, setIsFullscreen] = useState(!!document.fullscreenElement);
   const [imageLoaded, setImageLoaded] = useState(false);
   const scrollbarRef = useRef<HTMLDivElement>(null);
+  const isScrollbarDragging = useRef(false);
 
   const currentAlbum = albums[albumIndex];
   const currentPhoto = currentAlbum?.photos[photoIndex];
-  const totalPhotosInAlbum = currentAlbum?.photos.length || 0;
 
   // Flatten all photos for seamless navigation
   const allPhotos = useMemo(() => {
@@ -585,14 +1158,43 @@ const CinemaMode: React.FC<CinemaModeProps> = ({
     setDragOffset(0);
   };
 
-  // Scrollbar click handler
-  const handleScrollbarClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!scrollbarRef.current) return;
+  const updateCinemaScrollbar = useCallback((clientX: number) => {
+    if (!scrollbarRef.current || allPhotos.length <= 1) return;
     const rect = scrollbarRef.current.getBoundingClientRect();
-    const clickX = e.clientX - rect.left;
-    const percentage = clickX / rect.width;
-    const newIndex = Math.round(percentage * (allPhotos.length - 1));
-    goToFlatIndex(Math.max(0, Math.min(newIndex, allPhotos.length - 1)));
+    if (rect.width === 0) return;
+    const ratio = (clientX - rect.left) / rect.width;
+    const clamped = Math.min(Math.max(ratio, 0), 1);
+    const newIndex = Math.round(clamped * (allPhotos.length - 1));
+    goToFlatIndex(newIndex);
+  }, [allPhotos.length, goToFlatIndex]);
+
+  useEffect(() => {
+    const handlePointerMove = (event: PointerEvent) => {
+      if (!isScrollbarDragging.current) return;
+      event.preventDefault();
+      updateCinemaScrollbar(event.clientX);
+    };
+
+    const handlePointerUp = () => {
+      if (isScrollbarDragging.current) {
+        isScrollbarDragging.current = false;
+      }
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+    };
+  }, [updateCinemaScrollbar]);
+
+  const handleScrollbarPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (allPhotos.length <= 1) return;
+    event.preventDefault();
+    isScrollbarDragging.current = true;
+    updateCinemaScrollbar(event.clientX);
   };
 
   if (!currentPhoto) return null;
@@ -604,7 +1206,7 @@ const CinemaMode: React.FC<CinemaModeProps> = ({
 
   return (
     <motion.div
-      className="fixed inset-0 z-[100] flex flex-col select-none overflow-hidden"
+      className="fixed inset-0 z-[100] flex flex-col select-none overflow-hidden bg-black"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
@@ -640,13 +1242,11 @@ const CinemaMode: React.FC<CinemaModeProps> = ({
         onClick={handleClose}
       />
 
-      {/* Top bar with controls */}
+      {/* Top bar with controls - minimalistyczny */}
       <div className="absolute top-0 left-0 right-0 z-20 flex items-center justify-between p-4">
-        {/* Album indicator */}
-        <div className="text-white/60 text-sm bg-black/30 backdrop-blur-sm px-3 py-1.5 rounded-lg">
-          <span className="text-white">{currentAlbum?.name}</span>
-          <span className="mx-2">•</span>
-          <span>{photoIndex + 1} / {totalPhotosInAlbum}</span>
+        {/* Photo counter only - bez nazwy albumu */}
+        <div className="text-white/50 text-sm bg-black/30 backdrop-blur-sm px-3 py-1.5 rounded-lg">
+          {currentFlatIndex + 1} / {allPhotos.length}
         </div>
 
         {/* Right controls */}
@@ -674,36 +1274,36 @@ const CinemaMode: React.FC<CinemaModeProps> = ({
         </div>
       </div>
 
-      {/* Navigation arrows - always visible, same height */}
-      <div className="absolute left-0 top-0 bottom-0 w-20 md:w-32 z-10 flex items-center justify-start pl-2 md:pl-4">
+      {/* Navigation arrows - subtle, same size */}
+      <div className="absolute left-0 top-0 bottom-0 w-16 md:w-20 z-10 flex items-center justify-start pl-2 md:pl-3">
         {currentFlatIndex > 0 && (
           <motion.button
-            className="p-4 md:p-5 bg-white/10 hover:bg-white/20 rounded-full transition-colors"
+            className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors"
             onClick={goPrev}
             whileHover={{ scale: 1.1 }}
             whileTap={{ scale: 0.9 }}
           >
-            <ChevronLeft className="w-6 h-6 md:w-8 md:h-8 text-white" />
+            <ChevronLeft className="w-4 h-4 text-white" />
           </motion.button>
         )}
       </div>
 
-      <div className="absolute right-0 top-0 bottom-0 w-20 md:w-32 z-10 flex items-center justify-end pr-2 md:pr-4">
+      <div className="absolute right-0 top-0 bottom-0 w-16 md:w-20 z-10 flex items-center justify-end pr-2 md:pr-3">
         {currentFlatIndex < allPhotos.length - 1 && (
           <motion.button
-            className="p-4 md:p-5 bg-white/10 hover:bg-white/20 rounded-full transition-colors"
+            className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors"
             onClick={goNext}
             whileHover={{ scale: 1.1 }}
             whileTap={{ scale: 0.9 }}
           >
-            <ChevronRight className="w-6 h-6 md:w-8 md:h-8 text-white" />
+            <ChevronRight className="w-4 h-4 text-white" />
           </motion.button>
         )}
       </div>
 
-      {/* Photo container - centered with proper sizing */}
+      {/* Photo container - maksymalna wielkość */}
       <div 
-        className="flex-1 relative z-[5] flex items-center justify-center cursor-grab active:cursor-grabbing p-4 md:p-8"
+        className="flex-1 relative z-[5] flex items-center justify-center cursor-grab active:cursor-grabbing p-1 pb-4"
         onMouseDown={handlePhotoDragStart}
         onMouseMove={handlePhotoDragMove}
         onMouseUp={handlePhotoDragEnd}
@@ -720,7 +1320,7 @@ const CinemaMode: React.FC<CinemaModeProps> = ({
           key={`${albumIndex}-${photoIndex}`}
           src={currentPhoto.src}
           alt={currentPhoto.title || ''}
-          className={`max-w-full max-h-[75vh] w-auto h-auto object-contain rounded-lg shadow-2xl pointer-events-none transition-opacity duration-300 ${
+          className={`max-w-full max-h-[92vh] w-auto h-auto object-contain rounded-lg shadow-2xl pointer-events-none transition-opacity duration-300 ${
             imageLoaded ? 'opacity-100' : 'opacity-0'
           }`}
           style={{
@@ -742,56 +1342,63 @@ const CinemaMode: React.FC<CinemaModeProps> = ({
         />
       </div>
 
-      {/* Bottom scrollbar/slider */}
-      <div className="relative z-20 px-4 md:px-8 pb-4 md:pb-6">
+      {/* Bottom scrollbar - minimalistyczny, cienki z podziałkami wewnątrz */}
+      <div className="absolute bottom-3 left-0 right-0 z-20 px-8">
         <div 
           ref={scrollbarRef}
-          className="relative h-2 bg-white/10 rounded-full cursor-pointer overflow-hidden backdrop-blur-sm"
-          onClick={handleScrollbarClick}
+          className="relative h-1 bg-white/15 rounded-full cursor-pointer"
+          onPointerDown={handleScrollbarPointerDown}
         >
+          {/* Album markers - podziałki wewnątrz paska */}
+          {albums.map((album, idx) => {
+            if (idx === 0) return null;
+            let photosBeforeAlbum = 0;
+            for (let i = 0; i < idx; i++) {
+              photosBeforeAlbum += albums[i].photos.length;
+            }
+            const markerPosition = (photosBeforeAlbum / allPhotos.length) * 100;
+            return (
+              <div
+                key={album.id}
+                className="absolute top-0 w-px h-full bg-white/40"
+                style={{ left: `${markerPosition}%` }}
+              />
+            );
+          })}
+          
           {/* Progress fill */}
           <motion.div 
-            className="absolute left-0 top-0 bottom-0 bg-gradient-to-r from-white/40 to-white/60 rounded-full"
-            style={{ width: `${progressPercentage}%` }}
-            layoutId="cinema-progress"
+            className="absolute left-0 top-0 bottom-0 bg-white/30 rounded-full"
+            animate={{ width: `${progressPercentage}%` }}
             transition={{ type: 'spring', stiffness: 300, damping: 30 }}
           />
           
-          {/* Draggable thumb */}
+          {/* Świetlisty punkt - środek zawsze na linii */}
           <motion.div
-            className="absolute top-1/2 -translate-y-1/2 w-4 h-4 bg-white rounded-full shadow-lg cursor-grab active:cursor-grabbing"
-            style={{ left: `calc(${progressPercentage}% - 8px)` }}
-            whileHover={{ scale: 1.3 }}
+            className="absolute w-4 h-4 bg-white rounded-full shadow-[0_0_10px_3px_rgba(255,255,255,0.6)] cursor-grab active:cursor-grabbing z-20"
+            style={{ top: '50%', marginTop: '-8px' }}
+            animate={{ left: `calc(${progressPercentage}% - 8px)` }}
+            whileHover={{ scale: 1.2, boxShadow: '0 0 15px 5px rgba(255,255,255,0.8)' }}
             whileTap={{ scale: 1.1 }}
             transition={{ type: 'spring', stiffness: 400, damping: 25 }}
           />
-        </div>
-        
-        {/* Photo counter below scrollbar */}
-        <div className="flex justify-between items-center mt-2 text-xs text-white/40">
-          <span>{currentFlatIndex + 1} / {allPhotos.length}</span>
-          <span className="hidden md:inline">Kliknij tło aby zamknąć • Strzałki ← → nawigacja</span>
-          <span className="md:hidden">Przesuń lub dotknij tło</span>
         </div>
       </div>
     </motion.div>
   );
 };
 
-// ============================================
-// 3D SLIDER COMPONENT
-// ============================================
 interface SliderProps {
   photos: Photo[];
   onPhotoClick: (index: number) => void;
   activeIndex: number;
   onActiveChange: (index: number) => void;
+  className?: string;
 }
 
-const Slider3D: React.FC<SliderProps> = ({ photos, onPhotoClick, activeIndex, onActiveChange }) => {
+const Slider3D: React.FC<SliderProps> = ({ photos, onPhotoClick, activeIndex, onActiveChange, className = '' }) => {
   const [isDragging, setIsDragging] = useState(false);
   const dragStartX = useRef(0);
-  const scrollbarRef = useRef<HTMLDivElement>(null);
 
   const handlePrev = useCallback(() => {
     if (photos.length === 0) return;
@@ -844,23 +1451,13 @@ const Slider3D: React.FC<SliderProps> = ({ photos, onPhotoClick, activeIndex, on
     return () => window.removeEventListener('keydown', handleKey);
   }, [handlePrev, handleNext]);
 
-  // Scrollbar click handler
-  const handleScrollbarClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!scrollbarRef.current || photos.length <= 1) return;
-    const rect = scrollbarRef.current.getBoundingClientRect();
-    const clickX = e.clientX - rect.left;
-    const percentage = clickX / rect.width;
-    const newIndex = Math.round(percentage * (photos.length - 1));
-    onActiveChange(Math.max(0, Math.min(newIndex, photos.length - 1)));
-  };
-
   const getCardStyle = (index: number): React.CSSProperties => {
     const diff = (index - activeIndex + photos.length) % photos.length;
     const adjustedDiff = diff > photos.length / 2 ? diff - photos.length : diff;
 
     if (adjustedDiff === 0) {
       return {
-        transform: 'translateX(0%) translateZ(100px) scale(1.75)',
+        transform: 'translateX(0%) translateZ(100px) scale(1.45)',
         opacity: 1,
         zIndex: 30,
         filter: 'blur(0px)',
@@ -901,10 +1498,10 @@ const Slider3D: React.FC<SliderProps> = ({ photos, onPhotoClick, activeIndex, on
   }
 
   return (
-    <div className="relative w-full h-full flex items-center justify-center">
-      {/* Slider container */}
+    <div className={`w-full h-full ${className}`}>
+      {/* Image area only - navigation buttons moved to GalleryPage */}
       <div
-        className="relative w-full h-[50vh] md:h-[70vh] flex items-center justify-center select-none"
+        className="relative w-full h-full flex items-center justify-center select-none"
         style={{ perspective: '1500px' }}
         onMouseDown={handleMouseDown}
         onMouseUp={handleMouseUp}
@@ -915,7 +1512,7 @@ const Slider3D: React.FC<SliderProps> = ({ photos, onPhotoClick, activeIndex, on
         {photos.map((photo, index) => (
           <div
             key={photo.id}
-            className="absolute w-full max-w-[85%] md:max-w-2xl px-2 md:px-4 transition-all duration-500 ease-out cursor-pointer"
+            className="absolute w-full max-w-[65%] md:max-w-[500px] lg:max-w-[580px] transition-all duration-500 ease-out cursor-pointer"
             style={{
               ...getCardStyle(index),
               transformStyle: 'preserve-3d',
@@ -934,64 +1531,6 @@ const Slider3D: React.FC<SliderProps> = ({ photos, onPhotoClick, activeIndex, on
           </div>
         ))}
       </div>
-
-      {/* Navigation buttons - fixed height containers for alignment */}
-      {photos.length > 1 && (
-        <>
-          <div className="absolute left-0 top-0 bottom-0 w-16 md:w-24 z-40 flex items-center justify-start pl-1 md:pl-2">
-            <button
-              onClick={handlePrev}
-              className="p-3 md:p-4 bg-white/10 hover:bg-white/20 rounded-full transition-colors backdrop-blur-sm"
-              title="Poprzednie"
-            >
-              <ChevronLeft className="w-5 h-5 md:w-6 md:h-6 text-white" />
-            </button>
-          </div>
-          <div className="absolute right-0 top-0 bottom-0 w-16 md:w-24 z-40 flex items-center justify-end pr-1 md:pr-2">
-            <button
-              onClick={handleNext}
-              className="p-3 md:p-4 bg-white/10 hover:bg-white/20 rounded-full transition-colors backdrop-blur-sm"
-              title="Następne"
-            >
-              <ChevronRight className="w-5 h-5 md:w-6 md:h-6 text-white" />
-            </button>
-          </div>
-        </>
-      )}
-
-      {/* Bottom scrollbar/slider */}
-      {photos.length > 1 && (
-        <div className="absolute bottom-2 md:bottom-4 left-1/2 -translate-x-1/2 w-[60%] md:w-[50%] max-w-md z-40">
-          <div 
-            ref={scrollbarRef}
-            className="relative h-1.5 md:h-2 bg-white/10 rounded-full cursor-pointer overflow-hidden backdrop-blur-sm"
-            onClick={handleScrollbarClick}
-          >
-            {/* Progress fill */}
-            <motion.div 
-              className="absolute left-0 top-0 bottom-0 bg-gradient-to-r from-white/30 to-white/50 rounded-full"
-              style={{ width: `${(activeIndex / (photos.length - 1)) * 100}%` }}
-              transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-            />
-            
-            {/* Draggable thumb */}
-            <motion.div
-              className="absolute top-1/2 -translate-y-1/2 w-3 h-3 md:w-4 md:h-4 bg-white rounded-full shadow-lg cursor-grab active:cursor-grabbing"
-              style={{ left: `calc(${(activeIndex / (photos.length - 1)) * 100}% - 6px)` }}
-              whileHover={{ scale: 1.3 }}
-              whileTap={{ scale: 1.1 }}
-              transition={{ type: 'spring', stiffness: 400, damping: 25 }}
-            />
-          </div>
-          
-          {/* Counter below scrollbar */}
-          <div className="text-center mt-1">
-            <span className="text-white/40 text-xs">
-              {activeIndex + 1} / {photos.length}
-            </span>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
@@ -1021,9 +1560,14 @@ const GalleryPage: React.FC = () => {
   const [passwordInput, setPasswordInput] = useState('');
   const [passwordError, setPasswordError] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  
+  // Scrollbar dragging refs
+  const galleryScrollbarRef = useRef<HTMLDivElement>(null);
+  const isGalleryScrollbarDragging = useRef(false);
 
   const currentAlbum = albums[activeAlbumIndex];
   const canDownload = userRole === 'owner';
+  const selectedCount = selectedAlbums.size;
 
   // Password check
   const handleLogin = () => {
@@ -1069,6 +1613,46 @@ const GalleryPage: React.FC = () => {
 
   useEffect(() => { fetchAlbums(); }, []);
 
+  // Scrollbar dragging logic for gallery
+  const updateGalleryScrollbar = useCallback((clientX: number) => {
+    if (!galleryScrollbarRef.current || !currentAlbum || currentAlbum.photos.length <= 1) return;
+    const rect = galleryScrollbarRef.current.getBoundingClientRect();
+    if (rect.width === 0) return;
+    const ratio = (clientX - rect.left) / rect.width;
+    const clamped = Math.min(Math.max(ratio, 0), 1);
+    const nextIndex = Math.round(clamped * (currentAlbum.photos.length - 1));
+    setActivePhotoIndex(nextIndex);
+  }, [currentAlbum]);
+
+  useEffect(() => {
+    const handlePointerMove = (event: PointerEvent) => {
+      if (!isGalleryScrollbarDragging.current) return;
+      event.preventDefault();
+      updateGalleryScrollbar(event.clientX);
+    };
+
+    const handlePointerUp = () => {
+      if (isGalleryScrollbarDragging.current) {
+        isGalleryScrollbarDragging.current = false;
+      }
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+    };
+  }, [updateGalleryScrollbar]);
+
+  const handleGalleryScrollbarPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!currentAlbum || currentAlbum.photos.length <= 1) return;
+    event.preventDefault();
+    isGalleryScrollbarDragging.current = true;
+    updateGalleryScrollbar(event.clientX);
+  };
+
   // Ambient image
   const ambientImage = useMemo(() => {
     if (currentAlbum?.photos[activePhotoIndex]) {
@@ -1088,30 +1672,35 @@ const GalleryPage: React.FC = () => {
   };
 
   // Download handlers
-  const handleDownloadAlbum = async (album: Album) => {
-    setIsDownloading(true);
-    try {
-      await downloadAlbum(album);
-    } finally {
-      setIsDownloading(false);
-    }
-  };
-
-  const handleDownloadSelected = async () => {
-    if (selectedAlbums.size === 0) return;
-    setIsDownloading(true);
-    try {
-      const albumsToDownload = albums.filter(a => selectedAlbums.has(a.id));
-      await downloadMultipleAlbums(albumsToDownload);
-    } finally {
-      setIsDownloading(false);
-    }
-  };
-
   const handleDownloadAll = async () => {
     setIsDownloading(true);
     try {
       await downloadMultipleAlbums(albums);
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
+  const downloadButtonLabel = useMemo(() => {
+    if (selectedCount === 0) return 'Zaznacz album do pobrania';
+    if (selectedCount === 1) return 'Pobierz album';
+    return 'Pobierz albumy';
+  }, [selectedCount]);
+
+  const handlePrimaryDownload = async () => {
+    if (selectedCount === 0) return;
+    setIsDownloading(true);
+    try {
+      if (selectedCount === 1) {
+        const targetId = Array.from(selectedAlbums)[0];
+        const selectedAlbum = albums.find(album => album.id === targetId);
+        if (selectedAlbum) {
+          await downloadAlbum(selectedAlbum);
+        }
+      } else {
+        const albumsToDownload = albums.filter(album => selectedAlbums.has(album.id));
+        await downloadMultipleAlbums(albumsToDownload);
+      }
     } finally {
       setIsDownloading(false);
     }
@@ -1122,8 +1711,16 @@ const GalleryPage: React.FC = () => {
     setCinemaMode({ albumIndex: activeAlbumIndex, photoIndex });
   };
 
+  // Logout handler
+  const handleLogout = () => {
+    sessionStorage.removeItem('gallery_role');
+    setUserRole(null);
+    setPasswordInput('');
+  };
+
   // Fullscreen toggle
   const toggleFullscreen = () => {
+    if (typeof document === 'undefined') return;
     if (!document.fullscreenElement) {
       document.documentElement.requestFullscreen();
     } else {
@@ -1256,6 +1853,7 @@ const GalleryPage: React.FC = () => {
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}
             className="fixed top-4 left-4 z-50 p-2 bg-black/50 backdrop-blur-sm rounded-lg hidden"
+            aria-label="Przełącz panel albumów"
           >
             <Menu className="w-6 h-6 text-white" />
           </button>
@@ -1303,8 +1901,7 @@ const GalleryPage: React.FC = () => {
 
                   {/* Album info overlay */}
                   <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/80 to-transparent">
-                    <p className="text-white text-sm font-medium truncate">{album.name}</p>
-                    <p className="text-white/60 text-xs">{album.photos.length} zdjęć</p>
+                    <p className="text-white text-xs font-medium">{album.photos.length} zdjęć</p>
                   </div>
 
                   {/* Selection checkbox - only for owners */}
@@ -1331,27 +1928,14 @@ const GalleryPage: React.FC = () => {
             {/* Download Section - only for owners */}
             {canDownload && (
               <div className="p-4 border-t border-white/10 space-y-2">
-                {currentAlbum && (
-                  <button
-                    onClick={() => handleDownloadAlbum(currentAlbum)}
-                    disabled={isDownloading}
-                    className="w-full py-2.5 px-4 bg-white/10 hover:bg-white/20 rounded-lg text-white text-sm flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
-                  >
-                    <Download className="w-4 h-4" />
-                    Pobierz album
-                  </button>
-                )}
-
-                {selectedAlbums.size > 0 && (
-                  <button
-                    onClick={handleDownloadSelected}
-                    disabled={isDownloading}
-                    className="w-full py-2.5 px-4 bg-green-600/80 hover:bg-green-600 rounded-lg text-white text-sm flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
-                  >
-                    <Download className="w-4 h-4" />
-                    Pobierz zaznaczone ({selectedAlbums.size})
-                  </button>
-                )}
+                <button
+                  onClick={handlePrimaryDownload}
+                  disabled={isDownloading || selectedCount === 0}
+                  className="w-full py-2.5 px-4 bg-white/10 hover:bg-white/20 rounded-lg text-white text-sm flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+                >
+                  <Download className="w-4 h-4" />
+                  {downloadButtonLabel}
+                </button>
 
                 <button
                   onClick={handleDownloadAll}
@@ -1376,16 +1960,79 @@ const GalleryPage: React.FC = () => {
       </button>
 
       {/* Main Content - Desktop 3D Slider */}
-      <main className="ml-52 min-h-screen relative z-10 flex items-center justify-center p-4">
+      <main className="ml-52 h-screen relative z-10 flex items-center justify-center overflow-hidden">
         {currentAlbum && (
-          <Slider3D
-            photos={currentAlbum.photos}
-            activeIndex={activePhotoIndex}
-            onActiveChange={setActivePhotoIndex}
-            onPhotoClick={openCinemaMode}
-          />
+          <div className="w-full max-w-4xl flex flex-col items-center justify-center h-full">
+            <div className="w-full" style={{ height: '55vh' }}>
+              <Slider3D
+                photos={currentAlbum.photos}
+                activeIndex={activePhotoIndex}
+                onActiveChange={setActivePhotoIndex}
+                onPhotoClick={openCinemaMode}
+              />
+            </div>
+          </div>
         )}
       </main>
+
+      {/* Fixed navigation buttons - outside slider */}
+      {currentAlbum && currentAlbum.photos.length > 1 && (
+        <>
+          <button
+            onClick={() => setActivePhotoIndex((activePhotoIndex - 1 + currentAlbum.photos.length) % currentAlbum.photos.length)}
+            className="fixed left-56 top-1/2 -translate-y-1/2 z-50 p-3 md:p-4 bg-white/10 hover:bg-white/20 rounded-full transition-colors backdrop-blur-sm"
+            title="Poprzednie"
+          >
+            <ChevronLeft className="w-5 h-5 md:w-6 md:h-6 text-white" />
+          </button>
+          <button
+            onClick={() => setActivePhotoIndex((activePhotoIndex + 1) % currentAlbum.photos.length)}
+            className="fixed right-6 top-1/2 -translate-y-1/2 z-50 p-3 md:p-4 bg-white/10 hover:bg-white/20 rounded-full transition-colors backdrop-blur-sm"
+            title="Następne"
+          >
+            <ChevronRight className="w-5 h-5 md:w-6 md:h-6 text-white" />
+          </button>
+        </>
+      )}
+
+      {/* Fixed bottom scrollbar - desktop only */}
+      {currentAlbum && currentAlbum.photos.length > 1 && (
+        <div className="fixed bottom-6 left-52 right-4 z-40 px-8 md:px-16">
+          <div 
+            ref={galleryScrollbarRef}
+            className="relative h-1.5 bg-white/15 rounded-full cursor-pointer mx-auto max-w-2xl"
+            onPointerDown={handleGalleryScrollbarPointerDown}
+          >
+            {/* Progress fill */}
+            <motion.div 
+              className="absolute left-0 top-0 bottom-0 bg-white/30 rounded-full pointer-events-none"
+              animate={{ width: `${(activePhotoIndex / Math.max(currentAlbum.photos.length - 1, 1)) * 100}%` }}
+              transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+            />
+            
+            {/* Świetlisty punkt - środek zawsze na linii */}
+            <motion.div
+              className="absolute w-4 h-4 bg-white rounded-full shadow-[0_0_10px_3px_rgba(255,255,255,0.5)] cursor-grab active:cursor-grabbing"
+              style={{ top: '50%', marginTop: '-8px' }}
+              animate={{ left: `calc(${(activePhotoIndex / Math.max(currentAlbum.photos.length - 1, 1)) * 100}% - 8px)` }}
+              whileHover={{ scale: 1.2, boxShadow: '0 0 15px 5px rgba(255,255,255,0.7)' }}
+              whileTap={{ scale: 1.1 }}
+              transition={{ type: 'spring', stiffness: 400, damping: 25 }}
+              onPointerDown={(e) => {
+                e.stopPropagation();
+                handleGalleryScrollbarPointerDown(e);
+              }}
+            />
+          </div>
+          
+          {/* Counter */}
+          <div className="text-center mt-2">
+            <span className="text-white/40 text-xs">
+              {activePhotoIndex + 1} / {currentAlbum.photos.length}
+            </span>
+          </div>
+        </div>
+      )}
         </>
       )}
 
@@ -1409,6 +2056,18 @@ const GalleryPage: React.FC = () => {
           )
         )}
       </AnimatePresence>
+
+      {/* Logout button - prawy dolny róg, minimalistyczny */}
+      <motion.button
+        onClick={handleLogout}
+        className="fixed bottom-4 right-4 z-50 px-3 py-2 bg-black/40 hover:bg-black/60 backdrop-blur-sm rounded-lg text-white/60 hover:text-white text-xs flex items-center gap-2 transition-colors"
+        whileHover={{ scale: 1.05 }}
+        whileTap={{ scale: 0.95 }}
+        title="Wyloguj"
+      >
+        <LogOut className="w-4 h-4" />
+        <span className="hidden md:inline">Wyjdź</span>
+      </motion.button>
     </div>
   );
 };
@@ -1469,6 +2128,7 @@ const AdminPage: React.FC = () => {
           <Settings className="w-5 h-5 md:w-6 md:h-6 text-white" />
           <div>
             <h1 className="text-lg md:text-xl font-bold text-white">Panel Administratora</h1>
+
             <p className="text-xs text-white/50 flex items-center gap-1">
               {isOnline ? (
                 <><Wifi className="w-3 h-3 text-green-400" /> Online</>
@@ -1483,6 +2143,7 @@ const AdminPage: React.FC = () => {
           <button
             onClick={fetchAlbums}
             className="p-2 bg-white/10 hover:bg-white/20 rounded-lg transition-colors"
+            aria-label="Odśwież listę albumów"
           >
             <RefreshCw className="w-4 h-4 md:w-5 md:h-5 text-white" />
           </button>
@@ -1530,6 +2191,7 @@ const AdminPage: React.FC = () => {
                   <button
                     onClick={() => handleDeleteAlbum(album.id)}
                     className="absolute top-2 right-2 z-10 p-1.5 bg-red-500/80 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                    aria-label="Usuń album"
                   >
                     <X className="w-3 h-3 md:w-4 md:h-4 text-white" />
                   </button>

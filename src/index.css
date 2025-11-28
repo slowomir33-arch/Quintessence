@@ -433,6 +433,25 @@ body {
   color: white;
 }
 
+/* Mobile viewport fix - prevent white bar after fullscreen */
+html, body, #root {
+  min-height: 100vh;
+  min-height: 100dvh;
+  min-height: -webkit-fill-available;
+  background-color: #000;
+  overscroll-behavior: none;
+}
+
+/* Hide scrollbar utility */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
 /* Loading Animation */
 .loading-pulse {
   animation: loadingPulse 1.5s ease-in-out infinite;
