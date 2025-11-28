@@ -195,53 +195,54 @@ const CinemaMode: React.FC<CinemaModeProps> = ({
         <span>{photoIndex + 1} / {totalPhotosInAlbum}</span>
       </div>
 
-      {/* Navigation arrows */}
-      {currentFlatIndex > 0 && (
-        <motion.button
-          className="absolute left-2 md:left-4 top-1/2 -translate-y-1/2 z-10 p-2 md:p-3 bg-white/10 hover:bg-white/20 rounded-full transition-colors"
-          onClick={(e) => { e.stopPropagation(); goPrev(); }}
-          whileHover={{ scale: 1.1 }}
-          whileTap={{ scale: 0.9 }}
-        >
-          <ChevronLeft className="w-6 h-6 md:w-8 md:h-8 text-white" />
-        </motion.button>
-      )}
+      {/* Navigation arrows - always visible, same height */}
+      <div className="absolute left-0 top-0 bottom-0 w-20 md:w-32 z-10 flex items-center justify-start pl-2 md:pl-4">
+        {currentFlatIndex > 0 && (
+          <motion.button
+            className="p-4 md:p-5 bg-white/10 hover:bg-white/20 rounded-full transition-colors"
+            onClick={(e) => { e.stopPropagation(); goPrev(); }}
+            whileHover={{ scale: 1.1 }}
+            whileTap={{ scale: 0.9 }}
+          >
+            <ChevronLeft className="w-6 h-6 md:w-8 md:h-8 text-white" />
+          </motion.button>
+        )}
+      </div>
 
-      {currentFlatIndex < allPhotos.length - 1 && (
-        <motion.button
-          className="absolute right-2 md:right-4 top-1/2 -translate-y-1/2 z-10 p-2 md:p-3 bg-white/10 hover:bg-white/20 rounded-full transition-colors"
-          onClick={(e) => { e.stopPropagation(); goNext(); }}
-          whileHover={{ scale: 1.1 }}
-          whileTap={{ scale: 0.9 }}
-        >
-          <ChevronRight className="w-6 h-6 md:w-8 md:h-8 text-white" />
-        </motion.button>
-      )}
+      <div className="absolute right-0 top-0 bottom-0 w-20 md:w-32 z-10 flex items-center justify-end pr-2 md:pr-4">
+        {currentFlatIndex < allPhotos.length - 1 && (
+          <motion.button
+            className="p-4 md:p-5 bg-white/10 hover:bg-white/20 rounded-full transition-colors"
+            onClick={(e) => { e.stopPropagation(); goNext(); }}
+            whileHover={{ scale: 1.1 }}
+            whileTap={{ scale: 0.9 }}
+          >
+            <ChevronRight className="w-6 h-6 md:w-8 md:h-8 text-white" />
+          </motion.button>
+        )}
+      </div>
 
       {/* Photo */}
-      <motion.img
-        key={`${albumIndex}-${photoIndex}`}
-        src={currentPhoto.src}
-        alt={currentPhoto.title || ''}
-        className="max-w-[95vw] max-h-[85vh] w-auto h-auto object-contain cursor-default rounded-lg"
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ 
-          opacity: 1, 
-          scale: 1,
-          x: dragOffset * 0.3,
-        }}
-        exit={{ opacity: 0, scale: 0.95 }}
-        transition={{ duration: 0.2 }}
-        onClick={(e) => e.stopPropagation()}
-        draggable={false}
-        onError={(e) => {
-          console.error('Failed to load image:', currentPhoto.src);
-          // Try thumbnail as fallback
-          if (currentPhoto.thumbnail) {
-            (e.target as HTMLImageElement).src = currentPhoto.thumbnail;
-          }
-        }}
-      />
+      <div className="relative z-5 flex items-center justify-center">
+        <img
+          key={`${albumIndex}-${photoIndex}`}
+          src={currentPhoto.src}
+          alt={currentPhoto.title || ''}
+          className="max-w-[95vw] max-h-[85vh] w-auto h-auto object-contain cursor-default rounded-lg shadow-2xl"
+          style={{
+            transform: `translateX(${dragOffset * 0.3}px)`,
+            transition: dragOffset === 0 ? 'transform 0.2s ease-out' : 'none',
+          }}
+          onClick={(e) => e.stopPropagation()}
+          draggable={false}
+          onError={(e) => {
+            console.error('Failed to load image:', currentPhoto.src);
+            if (currentPhoto.thumbnail) {
+              (e.target as HTMLImageElement).src = currentPhoto.thumbnail;
+            }
+          }}
+        />
+      </div>
 
       {/* Swipe hint on mobile */}
       <div className="absolute bottom-4 left-1/2 -translate-x-1/2 text-white/40 text-xs md:text-sm md:hidden">
@@ -397,21 +398,27 @@ const Slider3D: React.FC<SliderProps> = ({ photos, onPhotoClick, activeIndex, on
         ))}
       </div>
 
-      {/* Navigation buttons */}
+      {/* Navigation buttons - fixed height containers for alignment */}
       {photos.length > 1 && (
         <>
-          <button
-            onClick={handlePrev}
-            className="absolute left-2 md:left-4 top-1/2 -translate-y-1/2 z-40 p-2 md:p-3 bg-white/10 hover:bg-white/20 rounded-full transition-colors backdrop-blur-sm"
-          >
-            <ChevronLeft className="w-5 h-5 md:w-6 md:h-6 text-white" />
-          </button>
-          <button
-            onClick={handleNext}
-            className="absolute right-2 md:right-4 top-1/2 -translate-y-1/2 z-40 p-2 md:p-3 bg-white/10 hover:bg-white/20 rounded-full transition-colors backdrop-blur-sm"
-          >
-            <ChevronRight className="w-5 h-5 md:w-6 md:h-6 text-white" />
-          </button>
+          <div className="absolute left-0 top-0 bottom-0 w-16 md:w-24 z-40 flex items-center justify-start pl-1 md:pl-2">
+            <button
+              onClick={handlePrev}
+              className="p-3 md:p-4 bg-white/10 hover:bg-white/20 rounded-full transition-colors backdrop-blur-sm"
+              title="Poprzednie"
+            >
+              <ChevronLeft className="w-5 h-5 md:w-6 md:h-6 text-white" />
+            </button>
+          </div>
+          <div className="absolute right-0 top-0 bottom-0 w-16 md:w-24 z-40 flex items-center justify-end pr-1 md:pr-2">
+            <button
+              onClick={handleNext}
+              className="p-3 md:p-4 bg-white/10 hover:bg-white/20 rounded-full transition-colors backdrop-blur-sm"
+              title="Następne"
+            >
+              <ChevronRight className="w-5 h-5 md:w-6 md:h-6 text-white" />
+            </button>
+          </div>
         </>
       )}
 
