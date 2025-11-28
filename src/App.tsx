@@ -37,7 +37,7 @@ const CinemaMode: React.FC<CinemaModeProps> = ({
   const [photoIndex, setPhotoIndex] = useState(initialPhotoIndex);
   const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(null);
   const [dragOffset, setDragOffset] = useState(0);
-  const containerRef = useRef<HTMLDivElement>(null);
+  const [isFullscreen, setIsFullscreen] = useState(!!document.fullscreenElement);
 
   const currentAlbum = albums[albumIndex];
   const currentPhoto = currentAlbum?.photos[photoIndex];
@@ -79,16 +79,39 @@ const CinemaMode: React.FC<CinemaModeProps> = ({
     goToFlatIndex(currentFlatIndex - 1);
   }, [currentFlatIndex, goToFlatIndex]);
 
+  // Close handler
+  const handleClose = useCallback(() => {
+    onClose();
+  }, [onClose]);
+
   // Keyboard navigation
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'ArrowRight') goNext();
       else if (e.key === 'ArrowLeft') goPrev();
-      else if (e.key === 'Escape') onClose();
+      else if (e.key === 'Escape') handleClose();
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [goNext, goPrev, onClose]);
+  }, [goNext, goPrev, handleClose]);
+
+  // Fullscreen change listener
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
+
+  // Toggle fullscreen
+  const toggleFullscreen = useCallback(() => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen();
+    } else {
+      document.exitFullscreen();
+    }
+  }, []);
 
   // Touch/swipe handlers
   const handleTouchStart = (e: React.TouchEvent) => {
@@ -110,19 +133,18 @@ const CinemaMode: React.FC<CinemaModeProps> = ({
     setDragOffset(0);
   };
 
-  // Mouse drag handlers
-  const handleMouseDown = (e: React.MouseEvent) => {
-    if ((e.target as HTMLElement).closest('button')) return;
+  // Mouse drag handlers for photo area only
+  const handlePhotoDragStart = (e: React.MouseEvent) => {
     setTouchStart({ x: e.clientX, y: e.clientY });
   };
 
-  const handleMouseMove = (e: React.MouseEvent) => {
+  const handlePhotoDragMove = (e: React.MouseEvent) => {
     if (!touchStart) return;
     const deltaX = e.clientX - touchStart.x;
     setDragOffset(deltaX);
   };
 
-  const handleMouseUp = () => {
+  const handlePhotoDragEnd = () => {
     if (!touchStart) return;
     const threshold = 80;
     if (dragOffset > threshold) goPrev();
@@ -131,30 +153,17 @@ const CinemaMode: React.FC<CinemaModeProps> = ({
     setDragOffset(0);
   };
 
-  // Click outside to close
-  const handleBackdropClick = (e: React.MouseEvent) => {
-    if (e.target === containerRef.current) {
-      onClose();
-    }
-  };
-
   if (!currentPhoto) return null;
 
   return (
     <motion.div
-      ref={containerRef}
-      className="fixed inset-0 z-[100] flex items-center justify-center cursor-pointer select-none overflow-hidden"
+      className="fixed inset-0 z-[100] flex items-center justify-center select-none overflow-hidden"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      onClick={handleBackdropClick}
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
-      onMouseDown={handleMouseDown}
-      onMouseMove={handleMouseMove}
-      onMouseUp={handleMouseUp}
-      onMouseLeave={handleMouseUp}
     >
       {/* Ambient background - blurred photo */}
       <motion.div
@@ -178,21 +187,44 @@ const CinemaMode: React.FC<CinemaModeProps> = ({
         <div className="absolute inset-0 bg-black/50" />
       </motion.div>
 
-      {/* Close button */}
-      <motion.button
-        className="absolute top-4 right-4 z-10 p-3 bg-white/10 hover:bg-white/20 rounded-full transition-colors"
-        onClick={onClose}
-        whileHover={{ scale: 1.1 }}
-        whileTap={{ scale: 0.9 }}
-      >
-        <X className="w-6 h-6 text-white" />
-      </motion.button>
+      {/* Clickable backdrop to close */}
+      <div 
+        className="absolute inset-0 z-[1] cursor-pointer"
+        onClick={handleClose}
+      />
 
-      {/* Album indicator */}
-      <div className="absolute top-4 left-4 z-10 text-white/60 text-sm">
-        <span className="text-white">{currentAlbum?.name}</span>
-        <span className="mx-2">•</span>
-        <span>{photoIndex + 1} / {totalPhotosInAlbum}</span>
+      {/* Top bar with controls */}
+      <div className="absolute top-0 left-0 right-0 z-20 flex items-center justify-between p-4">
+        {/* Album indicator */}
+        <div className="text-white/60 text-sm bg-black/30 backdrop-blur-sm px-3 py-1.5 rounded-lg">
+          <span className="text-white">{currentAlbum?.name}</span>
+          <span className="mx-2">•</span>
+          <span>{photoIndex + 1} / {totalPhotosInAlbum}</span>
+        </div>
+
+        {/* Right controls */}
+        <div className="flex items-center gap-2">
+          {/* Fullscreen button */}
+          <motion.button
+            className="p-2.5 bg-black/30 hover:bg-black/50 backdrop-blur-sm rounded-full transition-colors"
+            onClick={toggleFullscreen}
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            title={isFullscreen ? "Wyłącz pełny ekran" : "Pełny ekran"}
+          >
+            <Maximize className="w-5 h-5 text-white/70" />
+          </motion.button>
+
+          {/* Close button */}
+          <motion.button
+            className="p-2.5 bg-black/30 hover:bg-red-500/70 backdrop-blur-sm rounded-full transition-colors"
+            onClick={handleClose}
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+          >
+            <X className="w-5 h-5 text-white" />
+          </motion.button>
+        </div>
       </div>
 
       {/* Navigation arrows - always visible, same height */}
@@ -200,7 +232,7 @@ const CinemaMode: React.FC<CinemaModeProps> = ({
         {currentFlatIndex > 0 && (
           <motion.button
             className="p-4 md:p-5 bg-white/10 hover:bg-white/20 rounded-full transition-colors"
-            onClick={(e) => { e.stopPropagation(); goPrev(); }}
+            onClick={goPrev}
             whileHover={{ scale: 1.1 }}
             whileTap={{ scale: 0.9 }}
           >
@@ -213,7 +245,7 @@ const CinemaMode: React.FC<CinemaModeProps> = ({
         {currentFlatIndex < allPhotos.length - 1 && (
           <motion.button
             className="p-4 md:p-5 bg-white/10 hover:bg-white/20 rounded-full transition-colors"
-            onClick={(e) => { e.stopPropagation(); goNext(); }}
+            onClick={goNext}
             whileHover={{ scale: 1.1 }}
             whileTap={{ scale: 0.9 }}
           >
@@ -222,18 +254,23 @@ const CinemaMode: React.FC<CinemaModeProps> = ({
         )}
       </div>
 
-      {/* Photo */}
-      <div className="relative z-5 flex items-center justify-center">
+      {/* Photo - above backdrop, captures drag for swipe */}
+      <div 
+        className="relative z-[5] flex items-center justify-center cursor-grab active:cursor-grabbing"
+        onMouseDown={handlePhotoDragStart}
+        onMouseMove={handlePhotoDragMove}
+        onMouseUp={handlePhotoDragEnd}
+        onMouseLeave={handlePhotoDragEnd}
+      >
         <img
           key={`${albumIndex}-${photoIndex}`}
           src={currentPhoto.src}
           alt={currentPhoto.title || ''}
-          className="max-w-[95vw] max-h-[85vh] w-auto h-auto object-contain cursor-default rounded-lg shadow-2xl"
+          className="max-w-[95vw] max-h-[85vh] w-auto h-auto object-contain rounded-lg shadow-2xl pointer-events-none"
           style={{
             transform: `translateX(${dragOffset * 0.3}px)`,
             transition: dragOffset === 0 ? 'transform 0.2s ease-out' : 'none',
           }}
-          onClick={(e) => e.stopPropagation()}
           draggable={false}
           onError={(e) => {
             console.error('Failed to load image:', currentPhoto.src);
@@ -245,8 +282,8 @@ const CinemaMode: React.FC<CinemaModeProps> = ({
       </div>
 
       {/* Swipe hint on mobile */}
-      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 text-white/40 text-xs md:text-sm md:hidden">
-        Przesuń aby nawigować
+      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 text-white/40 text-xs md:hidden bg-black/30 backdrop-blur-sm px-3 py-1.5 rounded-full">
+        Przesuń lub dotknij tło aby zamknąć
       </div>
     </motion.div>
   );
