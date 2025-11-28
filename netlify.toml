@@ -1,10 +1,11 @@
 [build]
-  command = "npm run build"
+  command = "npm ci && npm run build"
   publish = "dist"
 
 [build.environment]
   NODE_VERSION = "20"
   VITE_API_URL = "https://api.lenaparty.pl"
+  NPM_FLAGS = "--prefer-offline"
 
 [[redirects]]
   from = "/*"

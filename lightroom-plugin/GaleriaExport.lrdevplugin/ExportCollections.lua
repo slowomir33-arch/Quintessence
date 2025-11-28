@@ -6,8 +6,22 @@
   1. Zaznacz Collection Set w Lightroom
   2. File > Plug-in Extras > Eksportuj albumy (Light + Max)
   3. Wybierz które albumy chcesz wyeksportować
-  4. Wybierz folder docelowy
-  5. Plugin wyeksportuje wybrane albumy z podziałem na light i max
+  4. Skonfiguruj szablon nazewnictwa plików
+  5. Wybierz folder docelowy
+  6. Plugin wyeksportuje wybrane albumy z podziałem na light i max
+  
+  Tokeny nazewnictwa:
+  {album}     - nazwa albumu/kolekcji
+  {original}  - oryginalna nazwa pliku (bez rozszerzenia)
+  {seq}       - numer sekwencyjny (001, 002, ...)
+  {seq2}      - numer sekwencyjny 2-cyfrowy (01, 02, ...)
+  {seq4}      - numer sekwencyjny 4-cyfrowy (0001, 0002, ...)
+  {date}      - data zdjęcia (YYYY-MM-DD)
+  {year}      - rok zdjęcia
+  {month}     - miesiąc (01-12)
+  {day}       - dzień (01-31)
+  {hour}      - godzina (00-23)
+  {minute}    - minuta (00-59)
 ]]
 
 local LrApplication = import 'LrApplication'
@@ -21,6 +35,50 @@ local LrExportSession = import 'LrExportSession'
 local LrView = import 'LrView'
 local LrBinding = import 'LrBinding'
 local LrColor = import 'LrColor'
+local LrDate = import 'LrDate'
+local LrStringUtils = import 'LrStringUtils'
+
+-- ============================================
+-- SZABLONY NAZEWNICTWA
+-- ============================================
+
+local NAMING_TEMPLATES = {
+  { 
+    name = "Album + Numer sekwencyjny",
+    template = "{album}_{seq}",
+    description = "Przykład: Urodziny Leny_001.jpg"
+  },
+  { 
+    name = "Oryginalna nazwa",
+    template = "{original}",
+    description = "Przykład: DSC_1234.jpg"
+  },
+  { 
+    name = "Album + Oryginalna nazwa",
+    template = "{album}_{original}",
+    description = "Przykład: Urodziny Leny_DSC_1234.jpg"
+  },
+  { 
+    name = "Data + Numer",
+    template = "{date}_{seq}",
+    description = "Przykład: 2025-11-28_001.jpg"
+  },
+  { 
+    name = "Album + Data + Numer",
+    template = "{album}_{date}_{seq}",
+    description = "Przykład: Urodziny Leny_2025-11-28_001.jpg"
+  },
+  { 
+    name = "Rok-Miesiąc + Album + Numer",
+    template = "{year}-{month}_{album}_{seq}",
+    description = "Przykład: 2025-11_Urodziny Leny_001.jpg"
+  },
+  { 
+    name = "Własny szablon",
+    template = "",
+    description = "Wprowadź własny szablon poniżej"
+  },
+}
 
 -- ============================================
 -- KONFIGURACJA EKSPORTU
@@ -32,17 +90,17 @@ local EXPORT_SETTINGS = {
     LR_export_destinationType = "specificFolder",
     LR_export_useSubfolder = false,
     LR_format = "JPEG",
-    LR_jpeg_quality = 0.85,           -- 85% jakości
+    LR_jpeg_quality = 0.85,
     LR_size_doConstrain = true,
     LR_size_maxHeight = 1800,
     LR_size_maxWidth = 1800,
     LR_size_resizeType = "longEdge",
     LR_size_units = "pixels",
-    LR_size_resolution = 72,          -- 72 DPI dla internetu
+    LR_size_resolution = 72,
     LR_size_resolutionUnits = "inch",
     LR_outputSharpeningOn = true,
     LR_outputSharpeningMedia = "screen",
-    LR_outputSharpeningLevel = 2,     -- Standard
+    LR_outputSharpeningLevel = 2,
     LR_minimizeEmbeddedMetadata = false,
     LR_removeLocationMetadata = false,
     LR_includeVideoFiles = false,
@@ -50,7 +108,7 @@ local EXPORT_SETTINGS = {
     LR_collisionHandling = "rename",
     LR_extensionCase = "lowercase",
     LR_initialSequenceNumber = 1,
-    LR_renamingTokensOn = false,
+    LR_renamingTokensOn = true,
   },
   
   -- Ustawienia dla wersji MAX (do druku)
@@ -58,13 +116,13 @@ local EXPORT_SETTINGS = {
     LR_export_destinationType = "specificFolder",
     LR_export_useSubfolder = false,
     LR_format = "JPEG",
-    LR_jpeg_quality = 1.0,            -- 100% jakości
-    LR_size_doConstrain = false,      -- Oryginalny rozmiar
-    LR_size_resolution = 300,         -- 300 DPI do druku
+    LR_jpeg_quality = 1.0,
+    LR_size_doConstrain = false,
+    LR_size_resolution = 300,
     LR_size_resolutionUnits = "inch",
     LR_outputSharpeningOn = true,
     LR_outputSharpeningMedia = "glossy",
-    LR_outputSharpeningLevel = 2,     -- Standard
+    LR_outputSharpeningLevel = 2,
     LR_minimizeEmbeddedMetadata = false,
     LR_removeLocationMetadata = false,
     LR_includeVideoFiles = false,
@@ -72,9 +130,59 @@ local EXPORT_SETTINGS = {
     LR_collisionHandling = "rename",
     LR_extensionCase = "lowercase",
     LR_initialSequenceNumber = 1,
-    LR_renamingTokensOn = false,
+    LR_renamingTokensOn = true,
   },
 }
+
+-- ============================================
+-- FUNKCJE NAZEWNICTWA
+-- ============================================
+
+-- Generuje nazwę pliku na podstawie szablonu
+local function generateFilename(template, albumName, originalFilename, sequenceNumber, captureDate)
+  local result = template
+  
+  -- Parsuj datę (captureDate to timestamp lub nil)
+  local year, month, day, hour, minute = "2025", "01", "01", "00", "00"
+  if captureDate then
+    local dateInfo = LrDate.timeToUserFormat(captureDate, "%Y-%m-%d-%H-%M")
+    if dateInfo then
+      year, month, day, hour, minute = dateInfo:match("(%d+)-(%d+)-(%d+)-(%d+)-(%d+)")
+    end
+  end
+  
+  -- Usuń rozszerzenie z oryginalnej nazwy
+  local originalBase = LrPathUtils.removeExtension(originalFilename) or originalFilename
+  
+  -- Zamień tokeny
+  result = result:gsub("{album}", albumName or "Album")
+  result = result:gsub("{original}", originalBase or "photo")
+  result = result:gsub("{seq4}", string.format("%04d", sequenceNumber or 1))
+  result = result:gsub("{seq2}", string.format("%02d", sequenceNumber or 1))
+  result = result:gsub("{seq}", string.format("%03d", sequenceNumber or 1))
+  result = result:gsub("{date}", string.format("%s-%s-%s", year, month, day))
+  result = result:gsub("{year}", year)
+  result = result:gsub("{month}", month)
+  result = result:gsub("{day}", day)
+  result = result:gsub("{hour}", hour)
+  result = result:gsub("{minute}", minute)
+  
+  -- Usuń niedozwolone znaki z nazwy pliku
+  result = result:gsub('[<>:"/\\|?*]', '_')
+  
+  return result
+end
+
+-- Generuje podgląd dla przykładowych danych
+local function generatePreview(template, albumName)
+  -- Przykładowe dane do podglądu
+  local exampleOriginal = "DSC_1234"
+  local exampleSeq = 1
+  local exampleDate = LrDate.currentTime()
+  
+  local filename = generateFilename(template, albumName, exampleOriginal, exampleSeq, exampleDate)
+  return filename .. ".jpg"
+end
 
 -- ============================================
 -- FUNKCJE POMOCNICZE
@@ -109,27 +217,59 @@ local function ensureFolder(folderPath)
   end
 end
 
--- Eksportuje zdjęcia z kolekcji
-local function exportPhotos(photos, exportSettings, progressScope, progressBase, progressTotal)
-  local exportSession = LrExportSession({
-    photosToExport = photos,
-    exportSettings = exportSettings,
-  })
-  
+-- Eksportuje zdjęcia z kolekcji z własnym nazewnictwem
+local function exportPhotosWithNaming(photos, exportSettings, destinationFolder, albumName, namingTemplate, progressScope, progressBase, progressTotal)
   local photoCount = #photos
   local exported = 0
   
-  for _, rendition in exportSession:renditions() do
-    local success, pathOrMessage = rendition:waitForRender()
+  for i, photo in ipairs(photos) do
+    -- Pobierz informacje o zdjęciu
+    local originalFilename = photo:getFormattedMetadata('fileName')
+    local captureDate = photo:getRawMetadata('captureTime')
+    
+    -- Wygeneruj nową nazwę
+    local newFilename = generateFilename(namingTemplate, albumName, originalFilename, i, captureDate)
+    
+    -- Ustaw nazwę pliku w ustawieniach eksportu
+    local photoSettings = {}
+    for k, v in pairs(exportSettings) do
+      photoSettings[k] = v
+    end
+    photoSettings.LR_export_destinationPathPrefix = destinationFolder
+    photoSettings.LR_renamingTokensOn = true
+    photoSettings.LR_tokens = "{{custom_token}}"
+    photoSettings.LR_tokenCustomString = newFilename
+    
+    -- Eksportuj pojedyncze zdjęcie
+    local exportSession = LrExportSession({
+      photosToExport = { photo },
+      exportSettings = photoSettings,
+    })
+    
+    for _, rendition in exportSession:renditions() do
+      local success, pathOrMessage = rendition:waitForRender()
+      
+      if success then
+        -- Zmień nazwę pliku na docelową
+        local exportedPath = pathOrMessage
+        local extension = LrPathUtils.extension(exportedPath)
+        local targetPath = LrPathUtils.child(destinationFolder, newFilename .. "." .. extension)
+        
+        -- Jeśli plik ma inną nazwę, zmień ją
+        if exportedPath ~= targetPath then
+          if LrFileUtils.exists(targetPath) then
+            LrFileUtils.delete(targetPath)
+          end
+          LrFileUtils.move(exportedPath, targetPath)
+        end
+      end
+    end
+    
     exported = exported + 1
     
     if progressScope then
       local progress = progressBase + (exported / photoCount) * progressTotal
       progressScope:setPortionComplete(progress, 1)
-    end
-    
-    if not success then
-      LrDialogs.message("Błąd eksportu", "Nie udało się wyeksportować: " .. tostring(pathOrMessage), "warning")
     end
   end
   
@@ -142,22 +282,53 @@ end
 
 local function showSelectionDialog(allCollections)
   local selectedCollections = {}
+  local selectedNamingTemplate = NAMING_TEMPLATES[1].template
   
   LrFunctionContext.callWithContext("selectionDialog", function(dialogContext)
     local props = LrBinding.makePropertyTable(dialogContext)
     
-    -- Domyślnie zaznacz wszystkie
+    -- Domyślnie zaznacz wszystkie albumy
     for i = 1, #allCollections do
       props["selected_" .. i] = true
     end
     props.selectAll = true
     
+    -- Ustawienia nazewnictwa
+    props.namingPreset = 1
+    props.customTemplate = "{album}_{seq}"
+    props.previewAlbumName = allCollections[1] and allCollections[1]:getName() or "Album"
+    
+    -- Funkcja aktualizacji podglądu
+    local function updatePreview()
+      local template
+      if props.namingPreset == #NAMING_TEMPLATES then
+        -- Własny szablon
+        template = props.customTemplate
+      else
+        template = NAMING_TEMPLATES[props.namingPreset].template
+      end
+      props.filenamePreview = generatePreview(template, props.previewAlbumName)
+    end
+    
+    -- Inicjalizuj podgląd
+    updatePreview()
+    
+    -- Obserwatory dla aktualizacji podglądu
+    props:addObserver("namingPreset", function()
+      updatePreview()
+    end)
+    
+    props:addObserver("customTemplate", function()
+      if props.namingPreset == #NAMING_TEMPLATES then
+        updatePreview()
+      end
+    end)
+    
     local f = LrView.osFactory()
     
-    -- Buduj listę checkboxów
+    -- ========== SEKCJA ALBUMÓW ==========
     local checkboxRows = {}
     
-    -- Przycisk zaznacz/odznacz wszystko
     table.insert(checkboxRows, f:row {
       f:checkbox {
         title = "Zaznacz / Odznacz wszystkie",
@@ -176,7 +347,7 @@ local function showSelectionDialog(allCollections)
         f:checkbox {
           title = string.format("%s (%d zdjęć)", collection:getName(), photoCount),
           value = LrView.bind("selected_" .. i),
-          width = 400,
+          width = 380,
         },
       })
     end
@@ -188,34 +359,111 @@ local function showSelectionDialog(allCollections)
       end
     end)
     
+    -- ========== SEKCJA NAZEWNICTWA ==========
+    local namingPresetItems = {}
+    for i, preset in ipairs(NAMING_TEMPLATES) do
+      table.insert(namingPresetItems, { title = preset.name, value = i })
+    end
+    
+    -- ========== BUDOWA DIALOGU ==========
     local dialogContent = f:column {
       spacing = f:control_spacing(),
       bind_to_object = props,
       
+      -- Nagłówek albumów
       f:static_text {
-        title = "Wybierz albumy do eksportu:",
+        title = "📁 Wybierz albumy do eksportu:",
         font = "<system/bold>",
       },
       
-      f:static_text {
-        title = "Każdy album zostanie wyeksportowany do folderów light/ i max/",
-      },
-      
-      f:separator { fill_horizontal = 1 },
-      
       f:scrolled_view {
-        width = 450,
-        height = 300,
+        width = 500,
+        height = 180,
         f:column(checkboxRows),
       },
       
       f:separator { fill_horizontal = 1 },
       
+      -- Nagłówek nazewnictwa
+      f:static_text {
+        title = "📝 Nazewnictwo plików:",
+        font = "<system/bold>",
+      },
+      
       f:row {
         f:static_text {
-          title = "Ustawienia eksportu:",
-          font = "<system/bold>",
+          title = "Szablon:",
+          width = 80,
         },
+        f:popup_menu {
+          items = namingPresetItems,
+          value = LrView.bind("namingPreset"),
+          width = 250,
+        },
+      },
+      
+      -- Pole własnego szablonu (widoczne tylko gdy wybrany "Własny szablon")
+      f:row {
+        f:static_text {
+          title = "Własny:",
+          width = 80,
+        },
+        f:edit_field {
+          value = LrView.bind("customTemplate"),
+          width = 300,
+          enabled = LrBinding.keyEquals("namingPreset", #NAMING_TEMPLATES),
+        },
+      },
+      
+      -- Dostępne tokeny
+      f:row {
+        f:static_text {
+          title = "",
+          width = 80,
+        },
+        f:static_text {
+          title = "Tokeny: {album} {original} {seq} {seq2} {seq4} {date} {year} {month} {day}",
+          text_color = LrColor(0.5, 0.5, 0.5),
+          font = "<system/small>",
+        },
+      },
+      
+      f:separator { fill_horizontal = 1 },
+      
+      -- Podgląd na żywo
+      f:row {
+        f:static_text {
+          title = "👁 Podgląd:",
+          font = "<system/bold>",
+          width = 80,
+        },
+        f:static_text {
+          title = LrView.bind("filenamePreview"),
+          font = "<system/bold>",
+          text_color = LrColor(0.2, 0.6, 0.2),
+          width = 350,
+        },
+      },
+      
+      -- Drugi przykład
+      f:row {
+        f:static_text {
+          title = "",
+          width = 80,
+        },
+        f:static_text {
+          title = "(przykład dla pierwszego zdjęcia)",
+          text_color = LrColor(0.5, 0.5, 0.5),
+          font = "<system/small>",
+        },
+      },
+      
+      f:separator { fill_horizontal = 1 },
+      
+      -- Ustawienia eksportu
+      f:static_text {
+        title = "⚙️ Ustawienia eksportu:",
+        font = "<system/bold>",
       },
       
       f:row {
@@ -239,22 +487,30 @@ local function showSelectionDialog(allCollections)
     })
     
     if result == "ok" then
+      -- Pobierz wybrane albumy
       for i, collection in ipairs(allCollections) do
         if props["selected_" .. i] then
           table.insert(selectedCollections, collection)
         end
       end
+      
+      -- Pobierz wybrany szablon nazewnictwa
+      if props.namingPreset == #NAMING_TEMPLATES then
+        selectedNamingTemplate = props.customTemplate
+      else
+        selectedNamingTemplate = NAMING_TEMPLATES[props.namingPreset].template
+      end
     end
   end)
   
-  return selectedCollections
+  return selectedCollections, selectedNamingTemplate
 end
 
 -- ============================================
 -- EKSPORT Z PASKIEM POSTĘPU (osobna funkcja)
 -- ============================================
 
-local function doExportWithProgress(selectedCollections, destinationFolder)
+local function doExportWithProgress(selectedCollections, destinationFolder, namingTemplate)
   LrFunctionContext.callWithContext("exportProgress", function(context)
     local progressScope = LrProgressScope({
       title = "Eksport albumów do Galeria Online",
@@ -286,12 +542,6 @@ local function doExportWithProgress(selectedCollections, destinationFolder)
         ensureFolder(maxFolder)
         
         -- Eksportuj wersję LIGHT
-        local lightSettings = {}
-        for k, v in pairs(EXPORT_SETTINGS.light) do
-          lightSettings[k] = v
-        end
-        lightSettings.LR_export_destinationPathPrefix = lightFolder
-        
         progressScope:setCaption(string.format(
           "%s - Light (%d/%d)",
           collectionName,
@@ -300,15 +550,9 @@ local function doExportWithProgress(selectedCollections, destinationFolder)
         ))
         
         local baseProgress = (collectionIndex - 1) / totalCollections
-        exportPhotos(photos, lightSettings, progressScope, baseProgress, 0.5 / totalCollections)
+        exportPhotosWithNaming(photos, EXPORT_SETTINGS.light, lightFolder, collectionName, namingTemplate, progressScope, baseProgress, 0.5 / totalCollections)
         
         -- Eksportuj wersję MAX
-        local maxSettings = {}
-        for k, v in pairs(EXPORT_SETTINGS.max) do
-          maxSettings[k] = v
-        end
-        maxSettings.LR_export_destinationPathPrefix = maxFolder
-        
         progressScope:setCaption(string.format(
           "%s - Max (%d/%d)",
           collectionName,
@@ -316,7 +560,7 @@ local function doExportWithProgress(selectedCollections, destinationFolder)
           totalCollections
         ))
         
-        exportPhotos(photos, maxSettings, progressScope, baseProgress + 0.5 / totalCollections, 0.5 / totalCollections)
+        exportPhotosWithNaming(photos, EXPORT_SETTINGS.max, maxFolder, collectionName, namingTemplate, progressScope, baseProgress + 0.5 / totalCollections, 0.5 / totalCollections)
         
         exportedPhotos = exportedPhotos + #photos
       end
@@ -334,10 +578,11 @@ local function doExportWithProgress(selectedCollections, destinationFolder)
       LrDialogs.message(
         "Eksport zakończony!",
         string.format(
-          "Wyeksportowano %d zdjęć z %d albumów.\n\nPliki zapisane w:\n%s\n\nStruktura:\n• [album]/light/ - do internetu\n• [album]/max/ - do druku",
-          exportedPhotos * 2,  -- *2 bo light + max
+          "Wyeksportowano %d zdjęć z %d albumów.\n\nPliki zapisane w:\n%s\n\nStruktura:\n• [album]/light/ - do internetu\n• [album]/max/ - do druku\n\nSzablon nazw: %s",
+          exportedPhotos * 2,
           totalCollections,
-          destinationFolder
+          destinationFolder,
+          namingTemplate
         ),
         "info"
       )
@@ -387,7 +632,7 @@ local function exportCollections()
     end
     
     -- Pokaż dialog wyboru (w osobnym kontekście)
-    local selectedCollections = showSelectionDialog(allCollections)
+    local selectedCollections, namingTemplate = showSelectionDialog(allCollections)
     
     -- Sprawdź czy coś wybrano
     if #selectedCollections == 0 then
@@ -410,7 +655,7 @@ local function exportCollections()
     destinationFolder = destinationFolder[1]
     
     -- Wykonaj eksport z paskiem postępu (w osobnym kontekście)
-    doExportWithProgress(selectedCollections, destinationFolder)
+    doExportWithProgress(selectedCollections, destinationFolder, namingTemplate)
   end)
 end
 
