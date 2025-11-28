@@ -4,9 +4,10 @@ import cors from 'cors';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs/promises';
-import { existsSync, mkdirSync } from 'fs';
+import { existsSync, mkdirSync, createReadStream } from 'fs';
 import { v4 as uuidv4 } from 'uuid';
 import sharp from 'sharp';
+import archiver from 'archiver';
 import ftpUploader from './ftp-uploader.js';
 
 const app = express();
@@ -71,7 +72,6 @@ app.use('/uploads', express.static(CONFIG.uploadsDir));
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    // Always use temp directory first, files will be moved after processing
     const tempPath = path.join(CONFIG.albumsDir, 'temp');
     
     if (!existsSync(tempPath)) {
@@ -81,9 +81,11 @@ const storage = multer.diskStorage({
     cb(null, tempPath);
   },
   filename: (req, file, cb) => {
-    // Keep original filename but make it safe
-    const safeName = sanitizeFilename(file.originalname);
-    cb(null, safeName);
+    // Preserve folder structure in filename (light/photo.jpg -> light___photo.jpg)
+    const safeName = file.originalname
+      .replace(/\\/g, '/')
+      .replace(/\//g, '___');
+    cb(null, sanitizeFilename(safeName));
   },
 });
 
@@ -100,7 +102,7 @@ const upload = multer({
   fileFilter,
   limits: { 
     fileSize: CONFIG.maxFileSize,
-    files: 1000, // Maximum number of files
+    files: 2000, // Allow more files for light + max
   },
 });
 
@@ -108,30 +110,23 @@ const upload = multer({
 // HELPER FUNCTIONS
 // ============================================
 
-// Sanitize filename - remove special characters, keep Polish letters
 function sanitizeFilename(filename) {
-  // Decode URI components if encoded
   let decoded = filename;
   try {
     decoded = decodeURIComponent(filename);
-  } catch (e) {
-    // Keep original if decoding fails
-  }
+  } catch (e) {}
   
-  // Replace problematic characters but keep Polish letters and spaces
   const ext = path.extname(decoded);
   const name = path.basename(decoded, ext);
   
-  // Replace characters that are problematic for filesystems
   const safeName = name
-    .replace(/[<>:"/\\|?*]/g, '_')  // Replace filesystem-unsafe chars
-    .replace(/\s+/g, ' ')           // Normalize spaces
+    .replace(/[<>:"/\\|?*]/g, '_')
+    .replace(/\s+/g, ' ')
     .trim();
   
   return safeName + ext;
 }
 
-// Get unique filename if file already exists
 async function getUniqueFilename(dir, filename) {
   const ext = path.extname(filename);
   const name = path.basename(filename, ext);
@@ -244,6 +239,127 @@ app.get('/api/albums/:id', async (req, res) => {
 });
 
 // ----------------------------------------
+// GET /api/albums/:id/download - Download album as ZIP
+// ----------------------------------------
+app.get('/api/albums/:id/download', async (req, res) => {
+  try {
+    const data = await readAlbumsData();
+    const album = data.albums.find(a => a.id === req.params.id);
+    
+    if (!album) {
+      return res.status(404).json({ error: 'Album nie znaleziony' });
+    }
+    
+    const albumName = album.name;
+    const albumPath = path.join(CONFIG.albumsDir, album.id);
+    const lightPath = path.join(albumPath, 'light');
+    const maxPath = path.join(albumPath, 'max');
+    
+    // Check if light/max structure exists
+    const hasLightMax = existsSync(lightPath) && existsSync(maxPath);
+    
+    // Set response headers
+    const zipFilename = `Lena ${albumName}.zip`;
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(zipFilename)}"`);
+    
+    // Create ZIP archive
+    const archive = archiver('zip', { zlib: { level: 5 } });
+    
+    archive.on('error', (err) => {
+      console.error('Archive error:', err);
+      res.status(500).json({ error: 'Błąd podczas tworzenia archiwum' });
+    });
+    
+    archive.pipe(res);
+    
+    if (hasLightMax) {
+      // New structure with light/max folders
+      const lightFolderName = `Lena ${albumName} - Light - do dzielenia się w internecie`;
+      const maxFolderName = `Lena ${albumName} - Max - do profesjonalnych wydruków`;
+      
+      // Add light folder
+      archive.directory(lightPath, lightFolderName);
+      
+      // Add max folder
+      archive.directory(maxPath, maxFolderName);
+    } else {
+      // Legacy structure - single folder with all photos
+      const folderName = `Lena ${albumName}`;
+      archive.directory(albumPath, folderName);
+    }
+    
+    await archive.finalize();
+    
+  } catch (error) {
+    console.error('Error downloading album:', error);
+    res.status(500).json({ error: 'Błąd podczas pobierania albumu' });
+  }
+});
+
+// ----------------------------------------
+// POST /api/download-multiple - Download multiple albums as ZIP
+// ----------------------------------------
+app.post('/api/download-multiple', async (req, res) => {
+  try {
+    const { albumIds } = req.body;
+    
+    if (!albumIds || !Array.isArray(albumIds) || albumIds.length === 0) {
+      return res.status(400).json({ error: 'Brak albumów do pobrania' });
+    }
+    
+    const data = await readAlbumsData();
+    const albumsToDownload = data.albums.filter(a => albumIds.includes(a.id));
+    
+    if (albumsToDownload.length === 0) {
+      return res.status(404).json({ error: 'Nie znaleziono albumów' });
+    }
+    
+    // Set response headers
+    const zipFilename = albumsToDownload.length === 1 
+      ? `Lena ${albumsToDownload[0].name}.zip`
+      : `Lena Galeria.zip`;
+    
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(zipFilename)}"`);
+    
+    // Create ZIP archive
+    const archive = archiver('zip', { zlib: { level: 5 } });
+    
+    archive.on('error', (err) => {
+      console.error('Archive error:', err);
+      res.status(500).json({ error: 'Błąd podczas tworzenia archiwum' });
+    });
+    
+    archive.pipe(res);
+    
+    for (const album of albumsToDownload) {
+      const albumPath = path.join(CONFIG.albumsDir, album.id);
+      const lightPath = path.join(albumPath, 'light');
+      const maxPath = path.join(albumPath, 'max');
+      
+      const hasLightMax = existsSync(lightPath) && existsSync(maxPath);
+      
+      if (hasLightMax) {
+        const lightFolderName = `Lena ${album.name} - Light - do dzielenia się w internecie`;
+        const maxFolderName = `Lena ${album.name} - Max - do profesjonalnych wydruków`;
+        
+        archive.directory(lightPath, lightFolderName);
+        archive.directory(maxPath, maxFolderName);
+      } else {
+        archive.directory(albumPath, `Lena ${album.name}`);
+      }
+    }
+    
+    await archive.finalize();
+    
+  } catch (error) {
+    console.error('Error downloading albums:', error);
+    res.status(500).json({ error: 'Błąd podczas pobierania albumów' });
+  }
+});
+
+// ----------------------------------------
 // POST /api/albums - Create new album
 // ----------------------------------------
 app.post('/api/albums', async (req, res) => {
@@ -261,15 +377,15 @@ app.post('/api/albums', async (req, res) => {
       name: name.trim(),
       thumbnail: '',
       photos: [],
+      hasLightMax: false,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
     
-    // Create album directory
+    // Create album directory with light/max subfolders
     const albumPath = path.join(CONFIG.albumsDir, newAlbum.id);
-    if (!existsSync(albumPath)) {
-      mkdirSync(albumPath, { recursive: true });
-    }
+    mkdirSync(path.join(albumPath, 'light'), { recursive: true });
+    mkdirSync(path.join(albumPath, 'max'), { recursive: true });
     
     data.albums.push(newAlbum);
     await writeAlbumsData(data);
@@ -347,119 +463,12 @@ app.delete('/api/albums/:id', async (req, res) => {
 });
 
 // ----------------------------------------
-// POST /api/albums/:albumId/photos - Upload photos to album
-// ----------------------------------------
-app.post('/api/albums/:albumId/photos', upload.array('photos', 1000), async (req, res) => {
-  try {
-    const { albumId } = req.params;
-    const data = await readAlbumsData();
-    
-    const albumIndex = data.albums.findIndex(a => a.id === albumId);
-    
-    if (albumIndex === -1) {
-      return res.status(404).json({ error: 'Album nie znaleziony' });
-    }
-    
-    const uploadedPhotos = [];
-    
-    for (const file of req.files) {
-      const photoId = uuidv4();
-      const imagePath = file.path;
-      
-      // Generate thumbnail
-      const thumbnailFilename = `${photoId}.jpg`;
-      await generateThumbnail(imagePath, albumId, thumbnailFilename);
-      
-      // Get dimensions
-      const dimensions = await getImageDimensions(imagePath);
-      
-      const photo = {
-        id: photoId,
-        src: `/uploads/albums/${albumId}/${file.filename}`,
-        thumbnail: `/uploads/thumbnails/${albumId}/${thumbnailFilename}`,
-        title: file.originalname.replace(/\.[^/.]+$/, ''),
-        width: dimensions.width,
-        height: dimensions.height,
-        uploadedAt: new Date().toISOString(),
-      };
-      
-      uploadedPhotos.push(photo);
-      data.albums[albumIndex].photos.push(photo);
-    }
-    
-    // Set first photo as album thumbnail if not set
-    if (!data.albums[albumIndex].thumbnail && uploadedPhotos.length > 0) {
-      data.albums[albumIndex].thumbnail = uploadedPhotos[0].thumbnail;
-    }
-    
-    data.albums[albumIndex].updatedAt = new Date().toISOString();
-    
-    await writeAlbumsData(data);
-    
-    res.status(201).json({
-      message: `Przesłano ${uploadedPhotos.length} zdjęć`,
-      photos: uploadedPhotos,
-    });
-  } catch (error) {
-    console.error('Error uploading photos:', error);
-    res.status(500).json({ error: 'Błąd podczas przesyłania zdjęć' });
-  }
-});
-
-// ----------------------------------------
-// DELETE /api/albums/:albumId/photos/:photoId - Delete photo
-// ----------------------------------------
-app.delete('/api/albums/:albumId/photos/:photoId', async (req, res) => {
-  try {
-    const { albumId, photoId } = req.params;
-    const data = await readAlbumsData();
-    
-    const albumIndex = data.albums.findIndex(a => a.id === albumId);
-    
-    if (albumIndex === -1) {
-      return res.status(404).json({ error: 'Album nie znaleziony' });
-    }
-    
-    const photoIndex = data.albums[albumIndex].photos.findIndex(p => p.id === photoId);
-    
-    if (photoIndex === -1) {
-      return res.status(404).json({ error: 'Zdjęcie nie znalezione' });
-    }
-    
-    const photo = data.albums[albumIndex].photos[photoIndex];
-    
-    // Delete files
-    try {
-      const imagePath = path.join('.', photo.src);
-      const thumbnailPath = path.join('.', photo.thumbnail);
-      await fs.unlink(imagePath);
-      await fs.unlink(thumbnailPath);
-    } catch (err) {
-      console.warn('Could not delete photo files:', err);
-    }
-    
-    data.albums[albumIndex].photos.splice(photoIndex, 1);
-    data.albums[albumIndex].updatedAt = new Date().toISOString();
-    
-    // Update album thumbnail if needed
-    if (data.albums[albumIndex].thumbnail === photo.thumbnail) {
-      data.albums[albumIndex].thumbnail = 
-        data.albums[albumIndex].photos[0]?.thumbnail || '';
-    }
-    
-    await writeAlbumsData(data);
-    
-    res.json({ message: 'Zdjęcie usunięte', id: photoId });
-  } catch (error) {
-    console.error('Error deleting photo:', error);
-    res.status(500).json({ error: 'Błąd podczas usuwania zdjęcia' });
-  }
-});
-
-// ----------------------------------------
 // POST /api/upload - Bulk upload (create album + photos)
+// Supports both:
+// - Old format: flat list of photos
+// - New format: photos with light/max folder structure
 // ----------------------------------------
-app.post('/api/upload', upload.array('photos', 1000), async (req, res) => {
+app.post('/api/upload', upload.array('photos', 2000), async (req, res) => {
   try {
     const { albumName } = req.body;
     
@@ -471,91 +480,113 @@ app.post('/api/upload', upload.array('photos', 1000), async (req, res) => {
     
     // Create new album
     const albumId = uuidv4();
+    const albumPath = path.join(CONFIG.albumsDir, albumId);
+    const lightPath = path.join(albumPath, 'light');
+    const maxPath = path.join(albumPath, 'max');
+    
+    mkdirSync(lightPath, { recursive: true });
+    mkdirSync(maxPath, { recursive: true });
+    
+    // Separate files by folder prefix (light___ or max___)
+    const lightFiles = [];
+    const maxFiles = [];
+    const otherFiles = [];
+    
+    for (const file of req.files) {
+      const filename = file.filename;
+      
+      if (filename.startsWith('light___')) {
+        lightFiles.push({
+          ...file,
+          cleanName: filename.replace('light___', ''),
+        });
+      } else if (filename.startsWith('max___')) {
+        maxFiles.push({
+          ...file,
+          cleanName: filename.replace('max___', ''),
+        });
+      } else {
+        otherFiles.push(file);
+      }
+    }
+    
+    const hasLightMax = lightFiles.length > 0 && maxFiles.length > 0;
+    
     const newAlbum = {
       id: albumId,
       name: albumName.trim(),
       thumbnail: '',
       photos: [],
+      hasLightMax,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
     
-    // Move files to album directory
-    const albumPath = path.join(CONFIG.albumsDir, albumId);
-    if (!existsSync(albumPath)) {
-      mkdirSync(albumPath, { recursive: true });
-    }
-    
-    // Prepare photos
-    const ftpPhotos = [];
-    
-    for (const file of req.files) {
-      const photoId = uuidv4();
+    // Process files
+    if (hasLightMax) {
+      // New format: light/max structure
+      console.log(`📁 Processing ${lightFiles.length} light + ${maxFiles.length} max files`);
       
-      // Use original filename (already sanitized by multer), ensure uniqueness
-      const originalExt = path.extname(file.originalname);
-      const originalName = path.basename(file.originalname, originalExt);
-      const safeFilename = sanitizeFilename(file.originalname);
-      const uniqueFilename = await getUniqueFilename(albumPath, safeFilename);
-      const newPath = path.join(albumPath, uniqueFilename);
+      // Move light files
+      for (const file of lightFiles) {
+        const targetPath = path.join(lightPath, file.cleanName);
+        await fs.rename(file.path, targetPath);
+      }
       
-      // Move file from temp to album directory
-      await fs.rename(file.path, newPath);
+      // Move max files
+      for (const file of maxFiles) {
+        const targetPath = path.join(maxPath, file.cleanName);
+        await fs.rename(file.path, targetPath);
+      }
       
-      // Generate thumbnail with same base name
-      const thumbFilename = path.basename(uniqueFilename, path.extname(uniqueFilename)) + '.jpg';
-      const thumbPath = await generateThumbnail(newPath, albumId, thumbFilename);
-      
-      // Get dimensions
-      const dimensions = await getImageDimensions(newPath);
-      
-      // Add to photos list
-      ftpPhotos.push({
-        photoPath: newPath,
-        thumbPath: thumbPath,
-        filename: uniqueFilename,
-        thumbFilename: thumbFilename,
-        photoId,
-        originalName: file.originalname,
-        dimensions,
-      });
-    }
-    
-    // Upload to FTP if configured
-    if (USE_FTP) {
-      console.log(`📡 Uploading ${ftpPhotos.length} photos to FTP...`);
-      
-      const ftpResults = await ftpUploader.uploadAlbum(albumId, ftpPhotos.map(p => ({
-        photoPath: p.photoPath,
-        thumbPath: p.thumbPath,
-        filename: p.filename,
-      })));
-      
-      // Use FTP URLs
-      for (let i = 0; i < ftpPhotos.length; i++) {
-        const p = ftpPhotos[i];
-        const ftpResult = ftpResults[i];
+      // Create photo entries from light files (they're the preview versions)
+      for (const file of lightFiles) {
+        const photoId = uuidv4();
+        const imagePath = path.join(lightPath, file.cleanName);
+        
+        // Generate thumbnail
+        const thumbFilename = path.basename(file.cleanName, path.extname(file.cleanName)) + '.jpg';
+        await generateThumbnail(imagePath, albumId, thumbFilename);
+        
+        // Get dimensions
+        const dimensions = await getImageDimensions(imagePath);
         
         newAlbum.photos.push({
-          id: p.photoId,
-          src: ftpResult.photoUrl,
-          thumbnail: ftpResult.thumbUrl,
-          title: p.originalName.replace(/\.[^/.]+$/, ''),
-          width: p.dimensions.width,
-          height: p.dimensions.height,
+          id: photoId,
+          src: `/uploads/albums/${albumId}/light/${file.cleanName}`,
+          thumbnail: `/uploads/thumbnails/${albumId}/${thumbFilename}`,
+          title: file.cleanName.replace(/\.[^/.]+$/, ''),
+          width: dimensions.width,
+          height: dimensions.height,
           uploadedAt: new Date().toISOString(),
         });
       }
     } else {
-      // Use local URLs
-      for (const p of ftpPhotos) {
+      // Old format: flat structure (or only other files)
+      const filesToProcess = otherFiles.length > 0 ? otherFiles : req.files;
+      
+      for (const file of filesToProcess) {
+        const photoId = uuidv4();
+        const safeFilename = sanitizeFilename(file.originalname);
+        const uniqueFilename = await getUniqueFilename(albumPath, safeFilename);
+        const newPath = path.join(albumPath, uniqueFilename);
+        
+        await fs.rename(file.path, newPath);
+        
+        // Generate thumbnail
+        const thumbFilename = path.basename(uniqueFilename, path.extname(uniqueFilename)) + '.jpg';
+        await generateThumbnail(newPath, albumId, thumbFilename);
+        
+        // Get dimensions
+        const dimensions = await getImageDimensions(newPath);
+        
         newAlbum.photos.push({
-          id: p.photoId,
-          src: `/uploads/albums/${albumId}/${p.filename}`,
-          thumbnail: `/uploads/thumbnails/${albumId}/${p.thumbFilename}`,
-          title: p.originalName.replace(/\.[^/.]+$/, ''),
-          width: p.dimensions.width,
-          height: p.dimensions.height,
+          id: photoId,
+          src: `/uploads/albums/${albumId}/${uniqueFilename}`,
+          thumbnail: `/uploads/thumbnails/${albumId}/${thumbFilename}`,
+          title: file.originalname.replace(/\.[^/.]+$/, ''),
+          width: dimensions.width,
+          height: dimensions.height,
           uploadedAt: new Date().toISOString(),
         });
       }
@@ -572,7 +603,7 @@ app.post('/api/upload', upload.array('photos', 1000), async (req, res) => {
     res.status(201).json({
       message: `Album "${albumName}" utworzony z ${newAlbum.photos.length} zdjęciami`,
       album: newAlbum,
-      storage: USE_FTP ? 'FTP' : 'local',
+      structure: hasLightMax ? 'light/max' : 'flat',
     });
   } catch (error) {
     console.error('Error in bulk upload:', error);
@@ -613,19 +644,20 @@ app.listen(PORT, () => {
 ║   🖼️  GALERIA ONLINE - Backend API                         ║
 ║                                                            ║
 ║   Server running at: http://localhost:${PORT}                ║
-║   Storage mode: ${USE_FTP ? '📡 FTP (' + process.env.FTP_HOST + ')' : '💾 Local storage'}
+║   Storage mode: ${USE_FTP ? '📡 FTP' : '💾 Local storage'}
 ║                                                            ║
 ║   Endpoints:                                               ║
-║   • GET    /api/health           - Status serwera          ║
-║   • GET    /api/ftp/test         - Test połączenia FTP     ║
-║   • GET    /api/albums           - Lista albumów           ║
-║   • GET    /api/albums/:id       - Szczegóły albumu        ║
-║   • POST   /api/albums           - Utwórz album            ║
-║   • PUT    /api/albums/:id       - Edytuj album            ║
-║   • DELETE /api/albums/:id       - Usuń album              ║
-║   • POST   /api/albums/:id/photos - Dodaj zdjęcia          ║
-║   • DELETE /api/albums/:id/photos/:photoId - Usuń zdjęcie  ║
-║   • POST   /api/upload           - Upload albumu (bulk)    ║
+║   • GET    /api/health              - Status serwera       ║
+║   • GET    /api/albums              - Lista albumów        ║
+║   • GET    /api/albums/:id          - Szczegóły albumu     ║
+║   • GET    /api/albums/:id/download - Pobierz album (ZIP)  ║
+║   • POST   /api/download-multiple   - Pobierz wiele (ZIP)  ║
+║   • POST   /api/albums              - Utwórz album         ║
+║   • PUT    /api/albums/:id          - Edytuj album         ║
+║   • DELETE /api/albums/:id          - Usuń album           ║
+║   • POST   /api/upload              - Upload albumu        ║
+║                                                            ║
+║   Upload format: light/ + max/ folders                     ║
 ║                                                            ║
 ╚════════════════════════════════════════════════════════════╝
   `);

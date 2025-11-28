@@ -231,3 +231,27 @@ export function getThumbnailUrl(thumbnail: string): string {
   }
   return `${API_BASE_URL}${thumbnail}`;
 }
+
+/**
+ * Get download URL for album
+ */
+export function getAlbumDownloadUrl(albumId: string): string {
+  return `${API_BASE_URL}/api/albums/${albumId}/download`;
+}
+
+/**
+ * Download multiple albums - returns blob URL
+ */
+export async function downloadMultipleAlbumsFromBackend(albumIds: string[]): Promise<Blob> {
+  const response = await fetch(`${API_BASE_URL}/api/download-multiple`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ albumIds }),
+  });
+  
+  if (!response.ok) {
+    throw new Error('Błąd podczas pobierania albumów');
+  }
+  
+  return response.blob();
+}
