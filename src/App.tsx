@@ -143,11 +143,10 @@ const CinemaMode: React.FC<CinemaModeProps> = ({
   return (
     <motion.div
       ref={containerRef}
-      className="fixed inset-0 z-[100] flex items-center justify-center cursor-pointer select-none"
+      className="fixed inset-0 z-[100] flex items-center justify-center cursor-pointer select-none overflow-hidden"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      style={{ backgroundColor: 'rgba(0, 0, 0, 0.95)' }}
       onClick={handleBackdropClick}
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
@@ -157,6 +156,28 @@ const CinemaMode: React.FC<CinemaModeProps> = ({
       onMouseUp={handleMouseUp}
       onMouseLeave={handleMouseUp}
     >
+      {/* Ambient background - blurred photo */}
+      <motion.div
+        key={`bg-${albumIndex}-${photoIndex}`}
+        className="absolute inset-0 z-0"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.3 }}
+      >
+        <img
+          src={currentPhoto.src}
+          alt=""
+          className="absolute inset-0 w-full h-full object-cover"
+          style={{
+            filter: 'blur(80px) saturate(1.5) brightness(0.4)',
+            transform: 'scale(1.2)',
+          }}
+        />
+        {/* Dark overlay for better contrast */}
+        <div className="absolute inset-0 bg-black/50" />
+      </motion.div>
+
       {/* Close button */}
       <motion.button
         className="absolute top-4 right-4 z-10 p-3 bg-white/10 hover:bg-white/20 rounded-full transition-colors"
