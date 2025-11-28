@@ -13,6 +13,7 @@ import ftpUploader from './ftp-uploader.js';
 const app = express();
 const PORT = process.env.PORT || 3001;
 const USE_FTP = ftpUploader.isConfigured();
+const APP_VERSION = 'batch-upload-v1';
 
 // ============================================
 // CONFIGURATION
@@ -193,6 +194,7 @@ app.get('/api/health', async (req, res) => {
   res.json({ 
     status: 'ok', 
     timestamp: new Date().toISOString(),
+    version: APP_VERSION,
     ftp: USE_FTP ? ftpStatus : { configured: false, message: 'FTP not configured, using local storage' }
   });
 });
