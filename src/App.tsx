@@ -1,10 +1,10 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, motion, useMotionValue, PanInfo } from 'framer-motion';
 import { 
   Settings, Upload, Camera, RefreshCw, Wifi, WifiOff, 
   Download, CheckSquare, Square, ChevronLeft, ChevronRight, X,
-  Image, Menu, Maximize, Lock, Eye, EyeOff
+  Image, Menu, Maximize, Lock, Eye, EyeOff, RotateCcw
 } from 'lucide-react';
 
 // Components
@@ -16,6 +16,435 @@ import { getAlbums, checkHealth, getImageUrl, getThumbnailUrl, deleteAlbum } fro
 import { mockAlbums } from '@/data/mockData';
 import { downloadAlbum, downloadMultipleAlbums } from '@/utils/downloader';
 import type { Album, Photo } from '@/types';
+
+// ============================================
+// HOOK: useIsMobile - Detect mobile devices
+// ============================================
+const useIsMobile = (): boolean => {
+  const [isMobile, setIsMobile] = useState(false);
+  
+  useEffect(() => {
+    const checkMobile = () => {
+      const mobile = window.innerWidth < 768 || 
+        /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      setIsMobile(mobile);
+    };
+    
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+  
+  return isMobile;
+};
+
+// ============================================
+// ROTATE HINT - Shows briefly on portrait mobile
+// ============================================
+const RotateHint: React.FC = () => {
+  const [visible, setVisible] = useState(true);
+  const [isPortrait, setIsPortrait] = useState(false);
+
+  useEffect(() => {
+    const checkOrientation = () => {
+      setIsPortrait(window.innerHeight > window.innerWidth && window.innerWidth < 768);
+    };
+    checkOrientation();
+    window.addEventListener('resize', checkOrientation);
+    
+    // Hide after 4 seconds
+    const timer = setTimeout(() => setVisible(false), 4000);
+    
+    return () => {
+      window.removeEventListener('resize', checkOrientation);
+      clearTimeout(timer);
+    };
+  }, []);
+
+  if (!isPortrait || !visible) return null;
+
+  return (
+    <motion.div
+      className="fixed bottom-20 left-1/2 -translate-x-1/2 z-[200] flex items-center gap-2 bg-black/70 backdrop-blur-md px-4 py-2 rounded-full"
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: [0, 1, 1, 0], y: 0 }}
+      transition={{ duration: 4, times: [0, 0.1, 0.8, 1] }}
+    >
+      <motion.div
+        animate={{ rotate: [0, -90, -90, 0] }}
+        transition={{ duration: 2, repeat: 1, repeatDelay: 0.5 }}
+      >
+        <RotateCcw className="w-5 h-5 text-white" />
+      </motion.div>
+      <span className="text-white/80 text-sm">Obróć dla lepszego widoku</span>
+    </motion.div>
+  );
+};
+
+// ============================================
+// MOBILE CINEMA MODE - Full gesture support with pinch zoom
+// ============================================
+interface MobileCinemaModeProps {
+  albums: Album[];
+  initialAlbumIndex: number;
+  initialPhotoIndex: number;
+  onClose: () => void;
+}
+
+const MobileCinemaMode: React.FC<MobileCinemaModeProps> = ({
+  albums,
+  initialAlbumIndex,
+  initialPhotoIndex,
+  onClose,
+}) => {
+  const [albumIndex, setAlbumIndex] = useState(initialAlbumIndex);
+  const [photoIndex, setPhotoIndex] = useState(initialPhotoIndex);
+  const [imageLoaded, setImageLoaded] = useState(false);
+  const [scale, setScale] = useState(1);
+  const [position, setPosition] = useState({ x: 0, y: 0 });
+  const lastTapRef = useRef(0);
+  const initialDistance = useRef(0);
+  const initialScale = useRef(1);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const currentAlbum = albums[albumIndex];
+  const currentPhoto = currentAlbum?.photos[photoIndex];
+
+  // Flatten all photos
+  const allPhotos = useMemo(() => {
+    return albums.flatMap((album, aIdx) => 
+      album.photos.map((photo, pIdx) => ({ 
+        photo, albumIndex: aIdx, photoIndex: pIdx, albumName: album.name 
+      }))
+    );
+  }, [albums]);
+
+  const currentFlatIndex = useMemo(() => {
+    let idx = 0;
+    for (let a = 0; a < albumIndex; a++) idx += albums[a].photos.length;
+    return idx + photoIndex;
+  }, [albums, albumIndex, photoIndex]);
+
+  const goToFlatIndex = useCallback((flatIdx: number) => {
+    if (flatIdx < 0 || flatIdx >= allPhotos.length) return;
+    const target = allPhotos[flatIdx];
+    setImageLoaded(false);
+    setScale(1);
+    setPosition({ x: 0, y: 0 });
+    setAlbumIndex(target.albumIndex);
+    setPhotoIndex(target.photoIndex);
+  }, [allPhotos]);
+
+  // Double tap to zoom
+  const handleTap = useCallback(() => {
+    const now = Date.now();
+    if (now - lastTapRef.current < 300) {
+      // Double tap - toggle zoom
+      if (scale > 1) {
+        setScale(1);
+        setPosition({ x: 0, y: 0 });
+      } else {
+        setScale(2.5);
+      }
+    }
+    lastTapRef.current = now;
+  }, [scale]);
+
+  // Pinch to zoom
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length === 2) {
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      initialDistance.current = Math.hypot(dx, dy);
+      initialScale.current = scale;
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (e.touches.length === 2) {
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      const distance = Math.hypot(dx, dy);
+      const newScale = Math.min(5, Math.max(1, initialScale.current * (distance / initialDistance.current)));
+      setScale(newScale);
+    }
+  };
+
+  // Swipe navigation (when not zoomed)
+  const handlePan = (_e: any, info: PanInfo) => {
+    if (scale > 1) {
+      // Pan zoomed image
+      setPosition(prev => ({
+        x: prev.x + info.delta.x,
+        y: prev.y + info.delta.y
+      }));
+    }
+  };
+
+  const handlePanEnd = (_e: any, info: PanInfo) => {
+    if (scale === 1) {
+      // Swipe navigation
+      if (Math.abs(info.velocity.x) > 300 || Math.abs(info.offset.x) > 100) {
+        if (info.offset.x > 0) {
+          goToFlatIndex(currentFlatIndex - 1);
+        } else {
+          goToFlatIndex(currentFlatIndex + 1);
+        }
+      }
+    } else {
+      // Constrain position when zoomed
+      const maxX = (scale - 1) * 150;
+      const maxY = (scale - 1) * 100;
+      setPosition({
+        x: Math.min(maxX, Math.max(-maxX, position.x)),
+        y: Math.min(maxY, Math.max(-maxY, position.y))
+      });
+    }
+  };
+
+  if (!currentPhoto) return null;
+
+  return (
+    <motion.div
+      ref={containerRef}
+      className="fixed inset-0 z-[100] bg-black flex flex-col select-none touch-none"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+    >
+      {/* Top bar */}
+      <div className="absolute top-0 left-0 right-0 z-20 flex items-center justify-between p-3 bg-gradient-to-b from-black/60 to-transparent">
+        <div className="text-white/70 text-xs bg-black/30 px-2 py-1 rounded">
+          {currentFlatIndex + 1} / {allPhotos.length}
+        </div>
+        <motion.button
+          className="p-2 bg-black/30 rounded-full"
+          onClick={onClose}
+          whileTap={{ scale: 0.9 }}
+        >
+          <X className="w-5 h-5 text-white" />
+        </motion.button>
+      </div>
+
+      {/* Photo with gestures */}
+      <motion.div
+        className="flex-1 flex items-center justify-center overflow-hidden"
+        onPan={handlePan}
+        onPanEnd={handlePanEnd}
+        onTouchEnd={handleTap}
+      >
+        {!imageLoaded && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="w-10 h-10 border-2 border-white/20 border-t-white/60 rounded-full animate-spin" />
+          </div>
+        )}
+        
+        <motion.img
+          key={`${albumIndex}-${photoIndex}`}
+          src={currentPhoto.src}
+          alt=""
+          className="max-w-full max-h-full object-contain"
+          style={{
+            scale,
+            x: position.x,
+            y: position.y,
+          }}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: imageLoaded ? 1 : 0 }}
+          transition={{ duration: 0.2 }}
+          onLoad={() => setImageLoaded(true)}
+          draggable={false}
+        />
+      </motion.div>
+
+      {/* Bottom progress bar */}
+      <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/60 to-transparent">
+        <div className="h-1 bg-white/20 rounded-full overflow-hidden">
+          <motion.div
+            className="h-full bg-white/60 rounded-full"
+            initial={{ width: 0 }}
+            animate={{ width: `${((currentFlatIndex + 1) / allPhotos.length) * 100}%` }}
+            transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+          />
+        </div>
+        <div className="mt-2 text-center text-white/40 text-xs">
+          {scale > 1 ? 'Podwójne tap = reset zoom' : 'Przesuń ← → • Podwójne tap = zoom'}
+        </div>
+      </div>
+    </motion.div>
+  );
+};
+
+// ============================================
+// MOBILE GALLERY VIEW - Swipeable cards with album thumbnails on right
+// ============================================
+interface MobileGalleryProps {
+  albums: Album[];
+  activeAlbumIndex: number;
+  activePhotoIndex: number;
+  onAlbumChange: (index: number) => void;
+  onPhotoChange: (index: number) => void;
+  onPhotoClick: (index: number) => void;
+}
+
+const MobileGallery: React.FC<MobileGalleryProps> = ({
+  albums,
+  activeAlbumIndex,
+  activePhotoIndex,
+  onAlbumChange,
+  onPhotoChange,
+  onPhotoClick,
+}) => {
+  const currentAlbum = albums[activeAlbumIndex];
+  const photos = currentAlbum?.photos || [];
+  const dragX = useMotionValue(0);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [imageLoaded, setImageLoaded] = useState(false);
+  
+  // Reset image loading state when photo changes
+  useEffect(() => {
+    setImageLoaded(false);
+  }, [activePhotoIndex, activeAlbumIndex]);
+
+  const handleDragEnd = (_e: any, info: PanInfo) => {
+    const threshold = 50;
+    const velocity = info.velocity.x;
+    const offset = info.offset.x;
+    
+    if (Math.abs(velocity) > 500 || Math.abs(offset) > threshold) {
+      if (offset > 0 || velocity > 500) {
+        // Swipe right - previous
+        if (activePhotoIndex > 0) {
+          onPhotoChange(activePhotoIndex - 1);
+        }
+      } else {
+        // Swipe left - next
+        if (activePhotoIndex < photos.length - 1) {
+          onPhotoChange(activePhotoIndex + 1);
+        }
+      }
+    }
+    dragX.set(0);
+  };
+
+  if (!currentAlbum || photos.length === 0) {
+    return (
+      <div className="h-screen flex items-center justify-center text-white/40">
+        <div className="text-center">
+          <Image className="w-12 h-12 mx-auto mb-2 opacity-30" />
+          <p className="text-sm">Wybierz album</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="h-screen flex relative">
+      {/* Main photo area - takes full screen minus album strip */}
+      <div 
+        ref={containerRef}
+        className="flex-1 flex flex-col relative overflow-hidden"
+      >
+        {/* Album name badge - top left */}
+        <div className="absolute top-4 left-4 z-10 bg-black/60 backdrop-blur-md px-3 py-2 rounded-xl">
+          <p className="text-white text-sm font-semibold">{currentAlbum.name}</p>
+          <p className="text-white/60 text-xs">{activePhotoIndex + 1} / {photos.length}</p>
+        </div>
+
+        {/* Swipeable photo - max size with safe margins */}
+        <motion.div
+          className="flex-1 flex items-center justify-center p-3 pt-16 pb-12"
+          drag="x"
+          dragConstraints={{ left: 0, right: 0 }}
+          dragElastic={0.15}
+          onDragEnd={handleDragEnd}
+          style={{ x: dragX }}
+        >
+          {/* Loading spinner */}
+          {!imageLoaded && (
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="w-10 h-10 border-2 border-white/20 border-t-white/60 rounded-full animate-spin" />
+            </div>
+          )}
+          
+          <motion.div
+            key={`${activeAlbumIndex}-${activePhotoIndex}`}
+            className="w-full h-full flex items-center justify-center"
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: imageLoaded ? 1 : 0, scale: 1 }}
+            transition={{ duration: 0.2 }}
+            onClick={() => onPhotoClick(activePhotoIndex)}
+          >
+            <img
+              src={photos[activePhotoIndex]?.src}
+              alt=""
+              className="max-w-full max-h-full w-auto h-auto object-contain rounded-xl shadow-2xl"
+              style={{ 
+                maxHeight: 'calc(100vh - 120px)', // Safe margin from top and bottom
+              }}
+              draggable={false}
+              onLoad={() => setImageLoaded(true)}
+            />
+          </motion.div>
+        </motion.div>
+
+        {/* Swipe hint - appears briefly */}
+        <motion.div 
+          className="absolute bottom-3 left-1/2 -translate-x-1/2 text-white/30 text-xs flex items-center gap-2"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: [0, 1, 1, 0] }}
+          transition={{ duration: 3, times: [0, 0.1, 0.7, 1], delay: 1 }}
+        >
+          <ChevronLeft className="w-4 h-4" />
+          <span>przesuń</span>
+          <ChevronRight className="w-4 h-4" />
+        </motion.div>
+
+        {/* Bottom progress bar */}
+        <div className="absolute bottom-8 left-4 right-20 h-1 bg-white/10 rounded-full overflow-hidden">
+          <motion.div
+            className="h-full bg-white/50 rounded-full"
+            animate={{ width: `${((activePhotoIndex + 1) / photos.length) * 100}%` }}
+            transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+          />
+        </div>
+      </div>
+
+      {/* Right side album thumbnails - small, no labels, thumb-reachable */}
+      <div className="w-14 bg-black/40 backdrop-blur-md flex flex-col py-4 gap-2 overflow-y-auto">
+        {albums.map((album, index) => (
+          <motion.button
+            key={album.id}
+            className={`mx-1.5 aspect-square rounded-lg overflow-hidden transition-all ${
+              index === activeAlbumIndex 
+                ? 'ring-2 ring-white shadow-lg scale-105' 
+                : 'opacity-40'
+            }`}
+            onClick={() => {
+              onAlbumChange(index);
+              onPhotoChange(0);
+            }}
+            whileTap={{ scale: 0.85 }}
+          >
+            {album.thumbnail ? (
+              <img
+                src={album.thumbnail}
+                alt=""
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <div className="w-full h-full bg-gray-700 flex items-center justify-center">
+                <Image className="w-3 h-3 text-white/30" />
+              </div>
+            )}
+          </motion.button>
+        ))}
+      </div>
+    </div>
+  );
+};
 
 // ============================================
 // CINEMA MODE - Fullscreen Photo Viewer
@@ -576,6 +1005,7 @@ const PASSWORD_GUEST = 'lenka2025';   // Tylko podgląd, bez pobierania
 type UserRole = 'owner' | 'guest' | null;
 
 const GalleryPage: React.FC = () => {
+  const isMobile = useIsMobile();
   const [albums, setAlbums] = useState<Album[]>([]);
   const [activeAlbumIndex, setActiveAlbumIndex] = useState(0);
   const [activePhotoIndex, setActivePhotoIndex] = useState(0);
@@ -780,146 +1210,173 @@ const GalleryPage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-black">
-      {/* Ambient Background */}
-      <AnimatePresence mode="wait">
-        <AmbientBackground key={ambientImage} imageSrc={ambientImage} />
-      </AnimatePresence>
-
-      {/* Mobile menu button */}
-      <button
-        onClick={() => setSidebarOpen(!sidebarOpen)}
-        className="fixed top-4 left-4 z-50 p-2 bg-black/50 backdrop-blur-sm rounded-lg md:hidden"
-      >
-        <Menu className="w-6 h-6 text-white" />
-      </button>
-
-      {/* Left Panel - Album Thumbnails */}
-      <motion.aside
-        className={`fixed left-0 top-0 bottom-0 w-52 z-40 flex flex-col transition-transform duration-300 ${
-          sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-        } md:translate-x-0`}
-        style={{
-          background: 'rgba(0, 0, 0, 0.7)',
-          backdropFilter: 'blur(20px)',
-          borderRight: '1px solid rgba(255, 255, 255, 0.1)',
-        }}
-      >
-        {/* Album List */}
-        <div className="flex-1 overflow-y-auto p-4 pt-16 md:pt-4 space-y-3">
-          {albums.map((album, index) => (
-            <motion.div
-              key={album.id}
-              className={`relative rounded-xl overflow-hidden cursor-pointer transition-all ${
-                index === activeAlbumIndex 
-                  ? 'ring-2 ring-white shadow-lg' 
-                  : 'opacity-70 hover:opacity-100'
-              }`}
-              onClick={() => handleAlbumSelect(index)}
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-            >
-              {/* Thumbnail */}
-              <div className="aspect-[4/3] bg-gray-800">
-                {album.thumbnail ? (
-                  <img
-                    src={album.thumbnail}
-                    alt={album.name}
-                    className="w-full h-full object-cover"
-                    onError={(e) => {
-                      (e.target as HTMLImageElement).style.display = 'none';
-                    }}
-                  />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center">
-                    <Image className="w-8 h-8 text-white/30" />
-                  </div>
-                )}
-              </div>
-
-              {/* Album info overlay */}
-              <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/80 to-transparent">
-                <p className="text-white text-sm font-medium truncate">{album.name}</p>
-                <p className="text-white/60 text-xs">{album.photos.length} zdjęć</p>
-              </div>
-
-              {/* Selection checkbox */}
-              {/* Selection checkbox - only for owners */}
-              {canDownload && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    toggleAlbumSelection(album.id);
-                  }}
-                  className="absolute top-2 right-2 p-1 bg-black/50 rounded-md hover:bg-black/70 transition-colors"
-                >
-                  {selectedAlbums.has(album.id) ? (
-                    <CheckSquare className="w-5 h-5 text-green-400" />
-                  ) : (
-                    <Square className="w-5 h-5 text-white/60" />
-                  )}
-                </button>
-              )}
-            </motion.div>
-          ))}
-        </div>
-
-        {/* Download Section - only for owners */}
-        {canDownload && (
-          <div className="p-4 border-t border-white/10 space-y-2">
-            {currentAlbum && (
-              <button
-                onClick={() => handleDownloadAlbum(currentAlbum)}
-                disabled={isDownloading}
-                className="w-full py-2.5 px-4 bg-white/10 hover:bg-white/20 rounded-lg text-white text-sm flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
-              >
-                <Download className="w-4 h-4" />
-                Pobierz album
-              </button>
-            )}
-
-            {selectedAlbums.size > 0 && (
-              <button
-                onClick={handleDownloadSelected}
-                disabled={isDownloading}
-                className="w-full py-2.5 px-4 bg-green-600/80 hover:bg-green-600 rounded-lg text-white text-sm flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
-              >
-                <Download className="w-4 h-4" />
-                Pobierz zaznaczone ({selectedAlbums.size})
-              </button>
-            )}
-
-            <button
-              onClick={handleDownloadAll}
-              disabled={isDownloading || albums.length === 0}
-              className="w-full py-2.5 px-4 bg-white/5 hover:bg-white/10 rounded-lg text-white/70 text-sm flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
-            >
-              <Download className="w-4 h-4" />
-              Pobierz całość
-            </button>
-          </div>
-        )}
-      </motion.aside>
-
-      {/* Overlay for mobile */}
-      {sidebarOpen && (
-        <div 
-          className="fixed inset-0 bg-black/50 z-30 md:hidden"
-          onClick={() => setSidebarOpen(false)}
-        />
+      {/* Ambient Background - Desktop only */}
+      {!isMobile && (
+        <AnimatePresence mode="wait">
+          <AmbientBackground key={ambientImage} imageSrc={ambientImage} />
+        </AnimatePresence>
       )}
+
+      {/* MOBILE VERSION - Completely different layout */}
+      {isMobile ? (
+        <>
+          <RotateHint />
+          {/* Mobile ambient - simpler */}
+          <div className="fixed inset-0 z-0">
+            {currentAlbum?.photos[activePhotoIndex] && (
+              <img
+                src={currentAlbum.photos[activePhotoIndex].src}
+                alt=""
+                className="absolute inset-0 w-full h-full object-cover"
+                style={{
+                  filter: 'blur(60px) saturate(1.2) brightness(0.3)',
+                  transform: 'scale(1.2)',
+                }}
+              />
+            )}
+            <div className="absolute inset-0 bg-black/60" />
+          </div>
+          
+          <MobileGallery
+            albums={albums}
+            activeAlbumIndex={activeAlbumIndex}
+            activePhotoIndex={activePhotoIndex}
+            onAlbumChange={(index) => {
+              setActiveAlbumIndex(index);
+              setActivePhotoIndex(0);
+            }}
+            onPhotoChange={setActivePhotoIndex}
+            onPhotoClick={openCinemaMode}
+          />
+        </>
+      ) : (
+        /* DESKTOP VERSION */
+        <>
+          {/* Mobile menu button - hidden on mobile now */}
+          <button
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            className="fixed top-4 left-4 z-50 p-2 bg-black/50 backdrop-blur-sm rounded-lg hidden"
+          >
+            <Menu className="w-6 h-6 text-white" />
+          </button>
+
+          {/* Left Panel - Album Thumbnails - Desktop only */}
+          <motion.aside
+            className="fixed left-0 top-0 bottom-0 w-52 z-40 flex flex-col"
+            style={{
+              background: 'rgba(0, 0, 0, 0.7)',
+              backdropFilter: 'blur(20px)',
+              borderRight: '1px solid rgba(255, 255, 255, 0.1)',
+            }}
+          >
+            {/* Album List */}
+            <div className="flex-1 overflow-y-auto p-4 pt-4 space-y-3">
+              {albums.map((album, index) => (
+                <motion.div
+                  key={album.id}
+                  className={`relative rounded-xl overflow-hidden cursor-pointer transition-all ${
+                    index === activeAlbumIndex 
+                      ? 'ring-2 ring-white shadow-lg' 
+                      : 'opacity-70 hover:opacity-100'
+                  }`}
+                  onClick={() => handleAlbumSelect(index)}
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                >
+                  {/* Thumbnail */}
+                  <div className="aspect-[4/3] bg-gray-800">
+                    {album.thumbnail ? (
+                      <img
+                        src={album.thumbnail}
+                        alt={album.name}
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).style.display = 'none';
+                        }}
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center">
+                        <Image className="w-8 h-8 text-white/30" />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Album info overlay */}
+                  <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/80 to-transparent">
+                    <p className="text-white text-sm font-medium truncate">{album.name}</p>
+                    <p className="text-white/60 text-xs">{album.photos.length} zdjęć</p>
+                  </div>
+
+                  {/* Selection checkbox - only for owners */}
+                  {canDownload && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleAlbumSelection(album.id);
+                      }}
+                      className="absolute top-2 right-2 p-1 bg-black/50 rounded-md hover:bg-black/70 transition-colors"
+                      title="Zaznacz album"
+                    >
+                      {selectedAlbums.has(album.id) ? (
+                        <CheckSquare className="w-5 h-5 text-green-400" />
+                      ) : (
+                        <Square className="w-5 h-5 text-white/60" />
+                      )}
+                    </button>
+                  )}
+                </motion.div>
+              ))}
+            </div>
+
+            {/* Download Section - only for owners */}
+            {canDownload && (
+              <div className="p-4 border-t border-white/10 space-y-2">
+                {currentAlbum && (
+                  <button
+                    onClick={() => handleDownloadAlbum(currentAlbum)}
+                    disabled={isDownloading}
+                    className="w-full py-2.5 px-4 bg-white/10 hover:bg-white/20 rounded-lg text-white text-sm flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+                  >
+                    <Download className="w-4 h-4" />
+                    Pobierz album
+                  </button>
+                )}
+
+                {selectedAlbums.size > 0 && (
+                  <button
+                    onClick={handleDownloadSelected}
+                    disabled={isDownloading}
+                    className="w-full py-2.5 px-4 bg-green-600/80 hover:bg-green-600 rounded-lg text-white text-sm flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+                  >
+                    <Download className="w-4 h-4" />
+                    Pobierz zaznaczone ({selectedAlbums.size})
+                  </button>
+                )}
+
+                <button
+                  onClick={handleDownloadAll}
+                  disabled={isDownloading || albums.length === 0}
+                  className="w-full py-2.5 px-4 bg-white/5 hover:bg-white/10 rounded-lg text-white/70 text-sm flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+                >
+                  <Download className="w-4 h-4" />
+                  Pobierz całość
+                </button>
+              </div>
+            )}
+          </motion.aside>
 
       {/* Fullscreen button - desktop only */}
       <button
         onClick={toggleFullscreen}
-        className="fixed top-4 right-4 z-50 p-2 bg-black/50 backdrop-blur-sm rounded-lg hidden md:flex items-center gap-2 text-white/70 hover:text-white hover:bg-black/70 transition-colors"
+        className="fixed top-4 right-4 z-50 p-2 bg-black/50 backdrop-blur-sm rounded-lg flex items-center gap-2 text-white/70 hover:text-white hover:bg-black/70 transition-colors"
         title="Tryb pełnoekranowy"
       >
         <Maximize className="w-5 h-5" />
         <span className="text-sm">Pełny ekran</span>
       </button>
 
-      {/* Main Content - 3D Slider */}
-      <main className="md:ml-52 min-h-screen relative z-10 flex items-center justify-center p-4">
+      {/* Main Content - Desktop 3D Slider */}
+      <main className="ml-52 min-h-screen relative z-10 flex items-center justify-center p-4">
         {currentAlbum && (
           <Slider3D
             photos={currentAlbum.photos}
@@ -929,16 +1386,27 @@ const GalleryPage: React.FC = () => {
           />
         )}
       </main>
+        </>
+      )}
 
-      {/* Cinema Mode */}
+      {/* Cinema Mode - Conditional Mobile/Desktop */}
       <AnimatePresence>
         {cinemaMode && (
-          <CinemaMode
-            albums={albums}
-            initialAlbumIndex={cinemaMode.albumIndex}
-            initialPhotoIndex={cinemaMode.photoIndex}
-            onClose={() => setCinemaMode(null)}
-          />
+          isMobile ? (
+            <MobileCinemaMode
+              albums={albums}
+              initialAlbumIndex={cinemaMode.albumIndex}
+              initialPhotoIndex={cinemaMode.photoIndex}
+              onClose={() => setCinemaMode(null)}
+            />
+          ) : (
+            <CinemaMode
+              albums={albums}
+              initialAlbumIndex={cinemaMode.albumIndex}
+              initialPhotoIndex={cinemaMode.photoIndex}
+              onClose={() => setCinemaMode(null)}
+            />
+          )
         )}
       </AnimatePresence>
     </div>
