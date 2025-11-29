@@ -216,8 +216,16 @@ function stream_zip(string $zipFilename, callable $builder): void {
     }
     $builder($zip);
     $zip->close();
+
+    // Sanitize filename for ASCII version (replace non-ascii with _)
+    $asciiFilename = preg_replace('/[^\x20-\x7E]/', '_', $zipFilename);
+    $asciiFilename = str_replace(['"', '\\'], '', $asciiFilename);
+    
+    // Encode for UTF-8 version
+    $utf8Filename = rawurlencode($zipFilename);
+
     header('Content-Type: application/zip');
-    header('Content-Disposition: attachment; filename="' . rawurlencode($zipFilename) . '"');
+    header('Content-Disposition: attachment; filename="' . $asciiFilename . '"; filename*=UTF-8\'\'' . $utf8Filename);
     header('Content-Length: ' . filesize($tmp));
     readfile($tmp);
     unlink($tmp);
