@@ -202,6 +202,20 @@ async function getImageDimensions(imagePath) {
   }
 }
 
+function sanitizeForZip(name) {
+  return name.replace(/[\\/:*?"<>|]/g, '_');
+}
+
+function setDownloadHeader(res, filename) {
+  // Sanitize filename for ASCII version (replace non-ascii with _)
+  const asciiFilename = filename.replace(/[^\x20-\x7E]/g, '_').replace(/["\\]/g, '');
+  // Encode for UTF-8 version
+  const utf8Filename = encodeURIComponent(filename).replace(/['()]/g, escape).replace(/\*/g, '%2A');
+  
+  res.setHeader('Content-Type', 'application/zip');
+  res.setHeader('Content-Disposition', `attachment; filename="${asciiFilename}"; filename*=UTF-8''${utf8Filename}`);
+}
+
 // ============================================
 // API ROUTES
 // ============================================
@@ -280,23 +294,25 @@ app.get('/api/albums/:id/download', async (req, res) => {
     
     // Set response headers
     const zipFilename = `Lena ${albumName}.zip`;
-    res.setHeader('Content-Type', 'application/zip');
-    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(zipFilename)}"`);
+    setDownloadHeader(res, zipFilename);
     
     // Create ZIP archive
     const archive = archiver('zip', { zlib: { level: 5 } });
     
     archive.on('error', (err) => {
       console.error('Archive error:', err);
-      res.status(500).json({ error: 'Błąd podczas tworzenia archiwum' });
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Błąd podczas tworzenia archiwum' });
+      }
     });
     
     archive.pipe(res);
     
     if (hasLightMax) {
       // New structure with light/max folders
-      const lightFolderName = `Lena ${albumName} - Light - do dzielenia się w internecie`;
-      const maxFolderName = `Lena ${albumName} - Max - do profesjonalnych wydruków`;
+      const safeAlbumName = sanitizeForZip(albumName);
+      const lightFolderName = `Lena ${safeAlbumName} - Light - do dzielenia się w internecie`;
+      const maxFolderName = `Lena ${safeAlbumName} - Max - do profesjonalnych wydruków`;
       
       // Add light folder
       archive.directory(lightPath, lightFolderName);
@@ -305,7 +321,7 @@ app.get('/api/albums/:id/download', async (req, res) => {
       archive.directory(maxPath, maxFolderName);
     } else {
       // Legacy structure - single folder with all photos
-      const folderName = `Lena ${albumName}`;
+      const folderName = `Lena ${sanitizeForZip(albumName)}`;
       archive.directory(albumPath, folderName);
     }
     
@@ -340,15 +356,16 @@ app.post('/api/download-multiple', async (req, res) => {
       ? `Lena ${albumsToDownload[0].name}.zip`
       : `Lena Galeria.zip`;
     
-    res.setHeader('Content-Type', 'application/zip');
-    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(zipFilename)}"`);
+    setDownloadHeader(res, zipFilename);
     
     // Create ZIP archive
     const archive = archiver('zip', { zlib: { level: 5 } });
     
     archive.on('error', (err) => {
       console.error('Archive error:', err);
-      res.status(500).json({ error: 'Błąd podczas tworzenia archiwum' });
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Błąd podczas tworzenia archiwum' });
+      }
     });
     
     archive.pipe(res);
@@ -361,13 +378,14 @@ app.post('/api/download-multiple', async (req, res) => {
       const hasLightMax = existsSync(lightPath) && existsSync(maxPath);
       
       if (hasLightMax) {
-        const lightFolderName = `Lena ${album.name} - Light - do dzielenia się w internecie`;
-        const maxFolderName = `Lena ${album.name} - Max - do profesjonalnych wydruków`;
+        const safeAlbumName = sanitizeForZip(album.name);
+        const lightFolderName = `Lena ${safeAlbumName} - Light - do dzielenia się w internecie`;
+        const maxFolderName = `Lena ${safeAlbumName} - Max - do profesjonalnych wydruków`;
         
         archive.directory(lightPath, lightFolderName);
         archive.directory(maxPath, maxFolderName);
       } else {
-        archive.directory(albumPath, `Lena ${album.name}`);
+        archive.directory(albumPath, `Lena ${sanitizeForZip(album.name)}`);
       }
     }
     

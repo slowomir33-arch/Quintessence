@@ -1670,6 +1670,25 @@ const Slider3D: React.FC<SliderProps> = ({ photos, onPhotoClick, activeIndex, on
 };
 
 // ============================================
+// LOADING SPARKLE COMPONENT
+// ============================================
+const LoadingSparkle = ({ className = "rounded-lg" }: { className?: string }) => (
+  <>
+    <div className={`absolute -inset-[2px] ${className} overflow-hidden z-0`}>
+      <motion.div
+        className="absolute inset-[-150%]"
+        style={{
+          background: 'conic-gradient(from 0deg, transparent 0 300deg, #fff 360deg)',
+        }}
+        animate={{ rotate: 360 }}
+        transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+      />
+    </div>
+    <div className={`absolute inset-[1px] ${className} bg-black/80 z-0`} />
+  </>
+);
+
+// ============================================
 // GALLERY PAGE - Clean UI
 // ============================================
 const PASSWORD_OWNER = 'lena2025!';  // Pełny dostęp z pobieraniem
@@ -1694,6 +1713,7 @@ const GalleryPage: React.FC = () => {
   const [passwordInput, setPasswordInput] = useState('');
   const [passwordError, setPasswordError] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [downloadingType, setDownloadingType] = useState<'primary' | 'all' | null>(null);
   
   // Scrollbar dragging refs
   const galleryScrollbarRef = useRef<HTMLDivElement>(null);
@@ -1808,10 +1828,12 @@ const GalleryPage: React.FC = () => {
   // Download handlers
   const handleDownloadAll = async () => {
     setIsDownloading(true);
+    setDownloadingType('all');
     try {
       await downloadMultipleAlbums(albums);
     } finally {
       setIsDownloading(false);
+      setDownloadingType(null);
     }
   };
 
@@ -1824,6 +1846,7 @@ const GalleryPage: React.FC = () => {
   const handlePrimaryDownload = async () => {
     if (selectedCount === 0) return;
     setIsDownloading(true);
+    setDownloadingType('primary');
     try {
       if (selectedCount === 1) {
         const targetId = Array.from(selectedAlbums)[0];
@@ -1837,6 +1860,7 @@ const GalleryPage: React.FC = () => {
       }
     } finally {
       setIsDownloading(false);
+      setDownloadingType(null);
     }
   };
 
@@ -2003,7 +2027,23 @@ const GalleryPage: React.FC = () => {
             }}
           >
             {/* Album List */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+            <div className="flex-1 overflow-y-auto p-6 space-y-6 relative">
+              {/* Sparkle border for container when downloading all */}
+              {isDownloading && downloadingType === 'all' && (
+                <div className="absolute inset-0 pointer-events-none z-0">
+                  <div className="absolute inset-0 overflow-hidden">
+                    <motion.div
+                      className="absolute inset-[-150%]"
+                      style={{
+                        background: 'conic-gradient(from 0deg, transparent 0 300deg, rgba(255,255,255,0.3) 360deg)',
+                      }}
+                      animate={{ rotate: 360 }}
+                      transition={{ duration: 4, repeat: Infinity, ease: "linear" }}
+                    />
+                  </div>
+                </div>
+              )}
+
               {albums.map((album, index) => (
                 <motion.div
                   key={album.id}
@@ -2016,6 +2056,26 @@ const GalleryPage: React.FC = () => {
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
                 >
+                  {/* Sparkle animation for selected albums during download */}
+                  {isDownloading && downloadingType === 'primary' && selectedAlbums.has(album.id) && (
+                    <div className="absolute inset-0 z-20 pointer-events-none">
+                      <div className="absolute inset-0 border-2 border-white/50 rounded-xl animate-pulse shadow-[0_0_15px_rgba(255,255,255,0.5)]" />
+                      <motion.div
+                        className="absolute inset-[-50%]"
+                        style={{
+                          background: 'conic-gradient(from 0deg, transparent 0 300deg, rgba(255,255,255,0.8) 360deg)',
+                          maskImage: 'linear-gradient(black, black), linear-gradient(black, black)',
+                          maskClip: 'content-box, border-box',
+                          maskComposite: 'exclude',
+                          WebkitMaskComposite: 'xor',
+                          padding: '2px',
+                        }}
+                        animate={{ rotate: 360 }}
+                        transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }}
+                      />
+                    </div>
+                  )}
+
                   {/* Thumbnail */}
                   <div className="aspect-square bg-gray-800">
                     {album.thumbnail ? (
@@ -2066,19 +2126,25 @@ const GalleryPage: React.FC = () => {
                 <button
                   onClick={handlePrimaryDownload}
                   disabled={isDownloading || selectedCount === 0}
-                  className="w-full py-2.5 px-4 bg-white/10 hover:bg-black/80 rounded-lg text-white hover:text-white hover:shadow-[0_0_15px_rgba(255,255,255,0.2)] text-sm flex items-center justify-center gap-2 transition-all duration-300 disabled:opacity-50"
+                  className="relative w-full py-2.5 px-4 bg-white/10 hover:bg-black/80 rounded-lg text-white hover:text-white hover:shadow-[0_0_15px_rgba(255,255,255,0.2)] text-sm flex items-center justify-center gap-2 transition-all duration-300 disabled:opacity-50 overflow-hidden"
                 >
-                  <Download className="w-4 h-4" />
-                  {downloadButtonLabel}
+                  {isDownloading && downloadingType === 'primary' && <LoadingSparkle />}
+                  <span className="relative z-10 flex items-center gap-2">
+                    <Download className={`w-4 h-4 ${isDownloading && downloadingType === 'primary' ? 'animate-bounce' : ''}`} />
+                    {isDownloading && downloadingType === 'primary' ? 'Przygotowywanie...' : downloadButtonLabel}
+                  </span>
                 </button>
 
                 <button
                   onClick={handleDownloadAll}
                   disabled={isDownloading || albums.length === 0}
-                  className="w-full py-2.5 px-4 bg-white/5 hover:bg-black/80 rounded-lg text-white/70 hover:text-white hover:shadow-[0_0_15px_rgba(255,255,255,0.2)] text-sm flex items-center justify-center gap-2 transition-all duration-300 disabled:opacity-50"
+                  className="relative w-full py-2.5 px-4 bg-white/5 hover:bg-black/80 rounded-lg text-white/70 hover:text-white hover:shadow-[0_0_15px_rgba(255,255,255,0.2)] text-sm flex items-center justify-center gap-2 transition-all duration-300 disabled:opacity-50 overflow-hidden"
                 >
-                  <Download className="w-4 h-4" />
-                  Pobierz całość
+                  {isDownloading && downloadingType === 'all' && <LoadingSparkle />}
+                  <span className="relative z-10 flex items-center gap-2">
+                    <Download className={`w-4 h-4 ${isDownloading && downloadingType === 'all' ? 'animate-bounce' : ''}`} />
+                    {isDownloading && downloadingType === 'all' ? 'Przygotowywanie...' : 'Pobierz całość'}
+                  </span>
                 </button>
               </div>
             )}
