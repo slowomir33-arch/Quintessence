@@ -1,20 +1,14 @@
 import { saveAs } from 'file-saver';
 import type { Album } from '@/types';
-import { getAlbumDownloadUrl, downloadMultipleAlbumsFromBackend } from '@/api/albums';
+import { downloadAlbumBlob, downloadMultipleAlbumsFromBackend } from '@/api/albums';
 
 /**
  * Downloads a single album as ZIP from backend
  */
 export async function downloadAlbum(album: Album): Promise<void> {
-  const downloadUrl = getAlbumDownloadUrl(album.id);
-  
-  // Trigger download via hidden link
-  const link = document.createElement('a');
-  link.href = downloadUrl;
-  link.download = `Lena ${album.name}.zip`;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
+  // Use fetch to allow loading state in UI
+  const blob = await downloadAlbumBlob(album.id);
+  saveAs(blob, `Lena ${album.name}.zip`);
 }
 
 /**

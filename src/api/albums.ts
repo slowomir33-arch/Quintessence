@@ -344,6 +344,19 @@ export function getAlbumDownloadUrl(albumId: string): string {
 }
 
 /**
+ * Download single album as blob (for progress tracking)
+ */
+export async function downloadAlbumBlob(albumId: string): Promise<Blob> {
+  const response = await fetch(`${API_BASE_URL}/api/albums/${albumId}/download`);
+  
+  if (!response.ok) {
+    throw new Error('Błąd podczas pobierania albumu');
+  }
+  
+  return response.blob();
+}
+
+/**
  * Download multiple albums - returns blob URL
  */
 export async function downloadMultipleAlbumsFromBackend(albumIds: string[]): Promise<Blob> {
