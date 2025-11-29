@@ -155,6 +155,24 @@ async function writeAlbumsData(data) {
   await fs.writeFile(CONFIG.dataFile, JSON.stringify(data, null, 2));
 }
 
+// Detect light/max folders even when files are nested inside an album directory
+function parseUploadPath(filename) {
+  const parts = filename
+    .split('___')
+    .map(part => part.trim())
+    .filter(part => part.length > 0);
+  const cleanName = parts.pop() || filename;
+  let folderType = '';
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const segment = parts[i].toLowerCase();
+    if (segment === 'light' || segment === 'max') {
+      folderType = segment;
+      break;
+    }
+  }
+  return { folderType, cleanName };
+}
+
 async function generateThumbnail(imagePath, albumId, filename) {
   const thumbnailDir = path.join(CONFIG.thumbnailsDir, albumId);
   
@@ -615,17 +633,17 @@ app.post('/api/upload', upload.array('photos', 2000), async (req, res) => {
     const otherFiles = [];
     
     for (const file of req.files) {
-      const filename = file.filename;
-      
-      if (filename.startsWith('light___')) {
+      const { folderType, cleanName } = parseUploadPath(file.filename);
+    
+      if (folderType === 'light') {
         lightFiles.push({
           ...file,
-          cleanName: filename.replace('light___', ''),
+          cleanName,
         });
-      } else if (filename.startsWith('max___')) {
+      } else if (folderType === 'max') {
         maxFiles.push({
           ...file,
-          cleanName: filename.replace('max___', ''),
+          cleanName,
         });
       } else {
         otherFiles.push(file);

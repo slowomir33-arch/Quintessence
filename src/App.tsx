@@ -2247,12 +2247,15 @@ const AdminPage: React.FC = () => {
 // ============================================
 // MAIN APP
 // ============================================
+import IntroTest from './pages/IntroTest';
+
 const App: React.FC = () => {
   return (
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<GalleryPage />} />
         <Route path="/admin" element={<AdminPage />} />
+        <Route path="/intro" element={<IntroTest />} />
       </Routes>
     </BrowserRouter>
   );
