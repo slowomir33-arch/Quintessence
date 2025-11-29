@@ -588,16 +588,10 @@ const MobilePortraitMasonry: React.FC<MobilePortraitMasonryProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const [scrollY, setScrollY] = useState(0);
   const [isUserScrolling, setIsUserScrolling] = useState(false);
-  const [isDrifting, setIsDrifting] = useState(false);
-  const driftAnimationRef = useRef<number | null>(null);
-  const driftStartTime = useRef<number>(0);
-  const driftStartScroll = useRef<number>(0);
-  const userScrollTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollbarRef = useRef<HTMLDivElement>(null);
   const isScrollbarDragging = useRef(false);
-
-  const DRIFT_DURATION = 15000; // 15 seconds
-  const PAUSE_AFTER_INTERACTION = 5000; // 5 seconds
+  const [flippedIndex, setFlippedIndex] = useState<number | null>(null);
+  const [flipDirection, setFlipDirection] = useState<'X' | 'Y'>('Y');
 
   // Calculate total height and photo positions
   const baseSize = 100; // Base size in pixels for calculations
@@ -636,86 +630,43 @@ const MobilePortraitMasonry: React.FC<MobilePortraitMasonryProps> = ({
     return Math.max(...photoData.map(col => col.height));
   }, [photoData]);
 
-  // Ease in-out function
-  const easeInOutCubic = (t: number): number => {
-    return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-  };
-
-  // Start drift animation
-  const startDrift = useCallback(() => {
-    if (!containerRef.current || isUserScrolling) return;
-    
-    setIsDrifting(true);
-    driftStartTime.current = performance.now();
-    driftStartScroll.current = containerRef.current.scrollTop;
-    
-    const maxScroll = totalHeight - containerRef.current.clientHeight;
-    const scrollDistance = maxScroll * 0.3; // Drift 30% of scrollable area
-    
-    const animate = (currentTime: number) => {
-      if (!containerRef.current || isUserScrolling) {
-        setIsDrifting(false);
-        return;
-      }
-      
-      const elapsed = currentTime - driftStartTime.current;
-      const progress = Math.min(elapsed / DRIFT_DURATION, 1);
-      const easedProgress = easeInOutCubic(progress);
-      
-      let newScroll = driftStartScroll.current + scrollDistance * easedProgress;
-      
-      // Loop back if reaching end
-      if (newScroll >= maxScroll) {
-        newScroll = newScroll - maxScroll;
-      }
-      
-      containerRef.current.scrollTop = newScroll;
-      
-      if (progress < 1) {
-        driftAnimationRef.current = requestAnimationFrame(animate);
-      } else {
-        // Drift complete, start new one
-        setIsDrifting(false);
-        driftAnimationRef.current = requestAnimationFrame(() => startDrift());
-      }
-    };
-    
-    driftAnimationRef.current = requestAnimationFrame(animate);
-  }, [isUserScrolling, totalHeight]);
-
-  // Auto-start drift on mount and after user interaction pause
+  // Random flip effect
   useEffect(() => {
-    if (!isUserScrolling && !isDrifting) {
-      const timeout = setTimeout(() => {
-        startDrift();
-      }, 500);
-      return () => clearTimeout(timeout);
-    }
-    
-    return () => {
-      if (driftAnimationRef.current) {
-        cancelAnimationFrame(driftAnimationRef.current);
-      }
+    const triggerFlip = () => {
+      if (photos.length === 0) return;
+      
+      // Pick random photo
+      const randomIndex = Math.floor(Math.random() * photos.length);
+      // Random direction
+      const direction = Math.random() > 0.5 ? 'X' : 'Y';
+      
+      setFlipDirection(direction);
+      setFlippedIndex(randomIndex);
+
+      // Flip back quickly (blink)
+      setTimeout(() => {
+        setFlippedIndex(null);
+      }, 600);
+
+      // Schedule next flip (0.8-2.3 seconds)
+      const nextDelay = 800 + Math.random() * 1500;
+      timeoutId = setTimeout(triggerFlip, nextDelay);
     };
-  }, [isUserScrolling, isDrifting, startDrift]);
+
+    let timeoutId = setTimeout(triggerFlip, 1000);
+
+    return () => clearTimeout(timeoutId);
+  }, [photos.length]);
 
   // Handle user interaction
   const handleTouchStart = () => {
     setIsUserScrolling(true);
-    setIsDrifting(false);
-    if (driftAnimationRef.current) {
-      cancelAnimationFrame(driftAnimationRef.current);
-    }
-    if (userScrollTimeout.current) {
-      clearTimeout(userScrollTimeout.current);
-    }
   };
 
   const handleTouchEnd = () => {
-    userScrollTimeout.current = setTimeout(() => {
+    setTimeout(() => {
       setIsUserScrolling(false);
-      // Will trigger useEffect to start drift again
-    }, PAUSE_AFTER_INTERACTION);
+    }, 1000);
   };
 
   const handleScroll = () => {
@@ -743,6 +694,7 @@ const MobilePortraitMasonry: React.FC<MobilePortraitMasonryProps> = ({
 
     const handlePointerUp = () => {
       isScrollbarDragging.current = false;
+      setTimeout(() => setIsUserScrolling(false), 1000);
     };
 
     window.addEventListener('pointermove', handlePointerMove);
@@ -760,12 +712,11 @@ const MobilePortraitMasonry: React.FC<MobilePortraitMasonryProps> = ({
     setIsUserScrolling(true);
     updateScrollFromScrollbar(event.clientY);
     
-    if (userScrollTimeout.current) {
-      clearTimeout(userScrollTimeout.current);
-    }
-    userScrollTimeout.current = setTimeout(() => {
-      setIsUserScrolling(false);
-    }, 3000);
+    setTimeout(() => {
+      if (!isScrollbarDragging.current) {
+        setIsUserScrolling(false);
+      }
+    }, 1000);
   };
 
   const scrollProgress = containerRef.current 
@@ -804,7 +755,15 @@ const MobilePortraitMasonry: React.FC<MobilePortraitMasonryProps> = ({
         style={{ scrollBehavior: isUserScrolling ? 'auto' : 'smooth' }}
       >
         <div className="relative" style={{ height: totalHeight + 100 }}>
-          <div className="flex gap-1.5 pt-16 pb-16">
+          <motion.div 
+            className="flex gap-1.5 pt-16 pb-16"
+            animate={{ y: [0, -15, 0] }}
+            transition={{ 
+              duration: 8, 
+              ease: "easeInOut", 
+              repeat: Infinity,
+            }}
+          >
             {photoData.map((column, colIndex) => (
               <div 
                 key={colIndex} 
@@ -812,30 +771,79 @@ const MobilePortraitMasonry: React.FC<MobilePortraitMasonryProps> = ({
               >
                 {column.items.map(({ photo, index, size }) => {
                   const height = baseSize * size;
+                  const isFlipped = flippedIndex === index;
                   
                   return (
-                    <motion.div
+                    <div
                       key={photo.id}
-                      className="relative overflow-hidden rounded-lg cursor-pointer"
-                      style={{ 
-                        height,
-                      }}
-                      whileTap={{ scale: 0.95 }}
+                      className="relative"
+                      style={{ height, perspective: '1000px' }}
                       onClick={() => onPhotoClick(index)}
                     >
-                      <img
-                        src={photo.thumbnail || photo.src}
-                        alt=""
-                        className="w-full h-full object-cover"
-                        loading="lazy"
-                        draggable={false}
-                      />
-                    </motion.div>
+                      <motion.div
+                        className="w-full h-full relative preserve-3d cursor-pointer rounded-lg"
+                        animate={{ 
+                          rotateX: isFlipped && flipDirection === 'X' ? 180 : 0,
+                          rotateY: isFlipped && flipDirection === 'Y' ? 180 : 0,
+                          scale: isFlipped ? 1.1 : 1,
+                          zIndex: isFlipped ? 50 : 1,
+                        }}
+                        transition={{ 
+                          type: "spring",
+                          stiffness: 260,
+                          damping: 20
+                        }}
+                        style={{ transformStyle: 'preserve-3d' }}
+                      >
+                        {/* Front */}
+                        <div 
+                          className="absolute inset-0 rounded-lg overflow-hidden"
+                          style={{ backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden' }}
+                        >
+                          <img
+                            src={photo.thumbnail || photo.src}
+                            alt=""
+                            className="w-full h-full object-cover"
+                            loading="lazy"
+                            draggable={false}
+                          />
+                        </div>
+
+                        {/* Back - Gold effect */}
+                        <div 
+                          className="absolute inset-0 rounded-lg overflow-hidden"
+                          style={{ 
+                            transform: flipDirection === 'X' ? 'rotateX(180deg)' : 'rotateY(180deg)',
+                            background: 'linear-gradient(135deg, #ffd700 0%, #ffffff 50%, #daa520 100%)',
+                            backfaceVisibility: 'hidden',
+                            WebkitBackfaceVisibility: 'hidden'
+                          }}
+                        >
+                          {/* Translucent photo */}
+                          <img
+                            src={photo.thumbnail || photo.src}
+                            alt=""
+                            className="absolute inset-0 w-full h-full object-cover opacity-20 grayscale"
+                            style={{ transform: 'scaleX(-1)' }} // Mirror for back
+                          />
+                          
+                          {/* Shine effect */}
+                          <div 
+                            className="absolute inset-0"
+                            style={{
+                              background: 'linear-gradient(45deg, transparent 40%, rgba(255,255,255,0.8) 50%, transparent 60%)',
+                              backgroundSize: '200% 200%',
+                              animation: 'shine 2s infinite linear'
+                            }}
+                          />
+                        </div>
+                      </motion.div>
+                    </div>
                   );
                 })}
               </div>
             ))}
-          </div>
+          </motion.div>
         </div>
       </div>
 
