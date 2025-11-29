@@ -1715,6 +1715,7 @@ const GalleryPage: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [downloadingType, setDownloadingType] = useState<'primary' | 'all' | null>(null);
   const [downloadProgress, setDownloadProgress] = useState(0);
+  const [abortController, setAbortController] = useState<AbortController | null>(null);
   
   // Scrollbar dragging refs
   const galleryScrollbarRef = useRef<HTMLDivElement>(null);
@@ -1827,18 +1828,40 @@ const GalleryPage: React.FC = () => {
   };
 
   // Download handlers
+  const handleCancelDownload = () => {
+    if (abortController) {
+      abortController.abort();
+      setAbortController(null);
+      setIsDownloading(false);
+      setDownloadingType(null);
+      setDownloadProgress(0);
+    }
+  };
+
   const handleDownloadAll = async () => {
+    const controller = new AbortController();
+    setAbortController(controller);
     setIsDownloading(true);
     setDownloadingType('all');
     setDownloadProgress(0);
     try {
       await downloadMultipleAlbums(albums, (progress) => {
         setDownloadProgress(progress);
-      });
+      }, controller.signal);
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        console.log('Download cancelled');
+      } else {
+        console.error('Download failed', error);
+        alert('Błąd pobierania');
+      }
     } finally {
-      setIsDownloading(false);
-      setDownloadingType(null);
-      setDownloadProgress(0);
+      if (!controller.signal.aborted) {
+        setIsDownloading(false);
+        setDownloadingType(null);
+        setDownloadProgress(0);
+        setAbortController(null);
+      }
     }
   };
 
@@ -1850,6 +1873,8 @@ const GalleryPage: React.FC = () => {
 
   const handlePrimaryDownload = async () => {
     if (selectedCount === 0) return;
+    const controller = new AbortController();
+    setAbortController(controller);
     setIsDownloading(true);
     setDownloadingType('primary');
     setDownloadProgress(0);
@@ -1860,18 +1885,28 @@ const GalleryPage: React.FC = () => {
         if (selectedAlbum) {
           await downloadAlbum(selectedAlbum, (progress) => {
             setDownloadProgress(progress);
-          });
+          }, controller.signal);
         }
       } else {
         const albumsToDownload = albums.filter(album => selectedAlbums.has(album.id));
         await downloadMultipleAlbums(albumsToDownload, (progress) => {
           setDownloadProgress(progress);
-        });
+        }, controller.signal);
+      }
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        console.log('Download cancelled');
+      } else {
+        console.error('Download failed', error);
+        alert('Błąd pobierania');
       }
     } finally {
-      setIsDownloading(false);
-      setDownloadingType(null);
-      setDownloadProgress(0);
+      if (!controller.signal.aborted) {
+        setIsDownloading(false);
+        setDownloadingType(null);
+        setDownloadProgress(0);
+        setAbortController(null);
+      }
     }
   };
 
@@ -2154,6 +2189,18 @@ const GalleryPage: React.FC = () => {
                       ? `Pobieranie ${Math.round(downloadProgress)}%` 
                       : downloadButtonLabel}
                   </span>
+                  {isDownloading && downloadingType === 'primary' && (
+                    <div 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleCancelDownload();
+                      }}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 z-20 p-1.5 bg-red-500/80 hover:bg-red-600 rounded cursor-pointer transition-colors shadow-lg"
+                      title="Anuluj pobieranie"
+                    >
+                      <Square className="w-3 h-3 text-white fill-white" />
+                    </div>
+                  )}
                 </button>
 
                 <button
@@ -2176,6 +2223,18 @@ const GalleryPage: React.FC = () => {
                       ? `Pobieranie ${Math.round(downloadProgress)}%` 
                       : 'Pobierz całość'}
                   </span>
+                  {isDownloading && downloadingType === 'all' && (
+                    <div 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleCancelDownload();
+                      }}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 z-20 p-1.5 bg-red-500/80 hover:bg-red-600 rounded cursor-pointer transition-colors shadow-lg"
+                      title="Anuluj pobieranie"
+                    >
+                      <Square className="w-3 h-3 text-white fill-white" />
+                    </div>
+                  )}
                 </button>
               </div>
             )}

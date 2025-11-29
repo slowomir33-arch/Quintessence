@@ -4,11 +4,12 @@ import cors from 'cors';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs/promises';
-import { existsSync, mkdirSync, createReadStream } from 'fs';
+import { existsSync, mkdirSync, createReadStream, createWriteStream } from 'fs';
 import { v4 as uuidv4 } from 'uuid';
 import sharp from 'sharp';
 import archiver from 'archiver';
 import ftpUploader from './ftp-uploader.js';
+import os from 'os';
 
 const app = express();
 const PORT = process.env.PORT || 3001;

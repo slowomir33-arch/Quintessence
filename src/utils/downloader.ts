@@ -7,10 +7,11 @@ import { downloadAlbumBlob, downloadMultipleAlbumsFromBackend } from '@/api/albu
  */
 export async function downloadAlbum(
   album: Album, 
-  onProgress?: (progress: number) => void
+  onProgress?: (progress: number) => void,
+  signal?: AbortSignal
 ): Promise<void> {
   // Use fetch to allow loading state in UI
-  const blob = await downloadAlbumBlob(album.id, onProgress);
+  const blob = await downloadAlbumBlob(album.id, onProgress, signal);
   saveAs(blob, `Lena ${album.name}.zip`);
 }
 
@@ -19,10 +20,11 @@ export async function downloadAlbum(
  */
 export async function downloadMultipleAlbums(
   albums: Album[],
-  onProgress?: (progress: number) => void
+  onProgress?: (progress: number) => void,
+  signal?: AbortSignal
 ): Promise<void> {
   const albumIds = albums.map(a => a.id);
-  const blob = await downloadMultipleAlbumsFromBackend(albumIds, onProgress);
+  const blob = await downloadMultipleAlbumsFromBackend(albumIds, onProgress, signal);
   
   const filename = albums.length === 1 
     ? `Lena ${albums[0].name}.zip`

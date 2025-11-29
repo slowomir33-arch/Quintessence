@@ -368,17 +368,24 @@ async function fetchBlobWithProgress(
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    
-    if (value) {
-      chunks.push(value);
-      loaded += value.length;
-      if (total) {
-        onProgress((loaded / total) * 100);
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      
+      if (value) {
+        chunks.push(value);
+        loaded += value.length;
+        if (total) {
+          onProgress((loaded / total) * 100);
+        }
       }
     }
+  } catch (error: any) {
+    if (error.name === 'AbortError') {
+      throw error;
+    }
+    throw new Error('Download interrupted');
   }
 
   return new Blob(chunks);
@@ -389,11 +396,12 @@ async function fetchBlobWithProgress(
  */
 export async function downloadAlbumBlob(
   albumId: string, 
-  onProgress?: (progress: number) => void
+  onProgress?: (progress: number) => void,
+  signal?: AbortSignal
 ): Promise<Blob> {
   return fetchBlobWithProgress(
     `${API_BASE_URL}/api/albums/${albumId}/download`,
-    { method: 'GET' },
+    { method: 'GET', signal },
     onProgress
   );
 }
@@ -403,7 +411,8 @@ export async function downloadAlbumBlob(
  */
 export async function downloadMultipleAlbumsFromBackend(
   albumIds: string[],
-  onProgress?: (progress: number) => void
+  onProgress?: (progress: number) => void,
+  signal?: AbortSignal
 ): Promise<Blob> {
   return fetchBlobWithProgress(
     `${API_BASE_URL}/api/download-multiple`,
@@ -411,6 +420,7 @@ export async function downloadMultipleAlbumsFromBackend(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ albumIds }),
+      signal,
     },
     onProgress
   );
