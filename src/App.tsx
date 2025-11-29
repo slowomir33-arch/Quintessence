@@ -1714,6 +1714,7 @@ const GalleryPage: React.FC = () => {
   const [passwordError, setPasswordError] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [downloadingType, setDownloadingType] = useState<'primary' | 'all' | null>(null);
+  const [downloadProgress, setDownloadProgress] = useState(0);
   
   // Scrollbar dragging refs
   const galleryScrollbarRef = useRef<HTMLDivElement>(null);
@@ -1829,11 +1830,15 @@ const GalleryPage: React.FC = () => {
   const handleDownloadAll = async () => {
     setIsDownloading(true);
     setDownloadingType('all');
+    setDownloadProgress(0);
     try {
-      await downloadMultipleAlbums(albums);
+      await downloadMultipleAlbums(albums, (progress) => {
+        setDownloadProgress(progress);
+      });
     } finally {
       setIsDownloading(false);
       setDownloadingType(null);
+      setDownloadProgress(0);
     }
   };
 
@@ -1847,20 +1852,26 @@ const GalleryPage: React.FC = () => {
     if (selectedCount === 0) return;
     setIsDownloading(true);
     setDownloadingType('primary');
+    setDownloadProgress(0);
     try {
       if (selectedCount === 1) {
         const targetId = Array.from(selectedAlbums)[0];
         const selectedAlbum = albums.find(album => album.id === targetId);
         if (selectedAlbum) {
-          await downloadAlbum(selectedAlbum);
+          await downloadAlbum(selectedAlbum, (progress) => {
+            setDownloadProgress(progress);
+          });
         }
       } else {
         const albumsToDownload = albums.filter(album => selectedAlbums.has(album.id));
-        await downloadMultipleAlbums(albumsToDownload);
+        await downloadMultipleAlbums(albumsToDownload, (progress) => {
+          setDownloadProgress(progress);
+        });
       }
     } finally {
       setIsDownloading(false);
       setDownloadingType(null);
+      setDownloadProgress(0);
     }
   };
 
@@ -2128,10 +2139,20 @@ const GalleryPage: React.FC = () => {
                   disabled={isDownloading || selectedCount === 0}
                   className="relative w-full py-2.5 px-4 bg-white/10 hover:bg-black/80 rounded-lg text-white hover:text-white hover:shadow-[0_0_15px_rgba(255,255,255,0.2)] text-sm flex items-center justify-center gap-2 transition-all duration-300 disabled:opacity-50 overflow-hidden"
                 >
-                  {isDownloading && downloadingType === 'primary' && <LoadingSparkle />}
+                  {isDownloading && downloadingType === 'primary' && (
+                    <>
+                      <div 
+                        className="absolute inset-0 bg-white/20 z-0 transition-all duration-300 ease-out"
+                        style={{ width: `${downloadProgress}%` }}
+                      />
+                      <LoadingSparkle />
+                    </>
+                  )}
                   <span className="relative z-10 flex items-center gap-2">
                     <Download className={`w-4 h-4 ${isDownloading && downloadingType === 'primary' ? 'animate-bounce' : ''}`} />
-                    {isDownloading && downloadingType === 'primary' ? 'Przygotowywanie...' : downloadButtonLabel}
+                    {isDownloading && downloadingType === 'primary' 
+                      ? `Pobieranie ${Math.round(downloadProgress)}%` 
+                      : downloadButtonLabel}
                   </span>
                 </button>
 
@@ -2140,10 +2161,20 @@ const GalleryPage: React.FC = () => {
                   disabled={isDownloading || albums.length === 0}
                   className="relative w-full py-2.5 px-4 bg-white/5 hover:bg-black/80 rounded-lg text-white/70 hover:text-white hover:shadow-[0_0_15px_rgba(255,255,255,0.2)] text-sm flex items-center justify-center gap-2 transition-all duration-300 disabled:opacity-50 overflow-hidden"
                 >
-                  {isDownloading && downloadingType === 'all' && <LoadingSparkle />}
+                  {isDownloading && downloadingType === 'all' && (
+                    <>
+                      <div 
+                        className="absolute inset-0 bg-white/20 z-0 transition-all duration-300 ease-out"
+                        style={{ width: `${downloadProgress}%` }}
+                      />
+                      <LoadingSparkle />
+                    </>
+                  )}
                   <span className="relative z-10 flex items-center gap-2">
                     <Download className={`w-4 h-4 ${isDownloading && downloadingType === 'all' ? 'animate-bounce' : ''}`} />
-                    {isDownloading && downloadingType === 'all' ? 'Przygotowywanie...' : 'Pobierz całość'}
+                    {isDownloading && downloadingType === 'all' 
+                      ? `Pobieranie ${Math.round(downloadProgress)}%` 
+                      : 'Pobierz całość'}
                   </span>
                 </button>
               </div>

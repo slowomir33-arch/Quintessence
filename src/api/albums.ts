@@ -344,31 +344,74 @@ export function getAlbumDownloadUrl(albumId: string): string {
 }
 
 /**
- * Download single album as blob (for progress tracking)
+ * Helper to fetch blob with progress tracking
  */
-export async function downloadAlbumBlob(albumId: string): Promise<Blob> {
-  const response = await fetch(`${API_BASE_URL}/api/albums/${albumId}/download`);
+async function fetchBlobWithProgress(
+  url: string, 
+  options: RequestInit, 
+  onProgress?: (progress: number) => void
+): Promise<Blob> {
+  const response = await fetch(url, options);
   
   if (!response.ok) {
-    throw new Error('Błąd podczas pobierania albumu');
+    throw new Error(`HTTP Error: ${response.status}`);
   }
-  
-  return response.blob();
+
+  if (!onProgress || !response.body) {
+    return response.blob();
+  }
+
+  const contentLength = response.headers.get('content-length');
+  const total = contentLength ? parseInt(contentLength, 10) : 0;
+  let loaded = 0;
+
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    
+    if (value) {
+      chunks.push(value);
+      loaded += value.length;
+      if (total) {
+        onProgress((loaded / total) * 100);
+      }
+    }
+  }
+
+  return new Blob(chunks);
+}
+
+/**
+ * Download single album as blob (for progress tracking)
+ */
+export async function downloadAlbumBlob(
+  albumId: string, 
+  onProgress?: (progress: number) => void
+): Promise<Blob> {
+  return fetchBlobWithProgress(
+    `${API_BASE_URL}/api/albums/${albumId}/download`,
+    { method: 'GET' },
+    onProgress
+  );
 }
 
 /**
  * Download multiple albums - returns blob URL
  */
-export async function downloadMultipleAlbumsFromBackend(albumIds: string[]): Promise<Blob> {
-  const response = await fetch(`${API_BASE_URL}/api/download-multiple`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ albumIds }),
-  });
-  
-  if (!response.ok) {
-    throw new Error('Błąd podczas pobierania albumów');
-  }
-  
-  return response.blob();
+export async function downloadMultipleAlbumsFromBackend(
+  albumIds: string[],
+  onProgress?: (progress: number) => void
+): Promise<Blob> {
+  return fetchBlobWithProgress(
+    `${API_BASE_URL}/api/download-multiple`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ albumIds }),
+    },
+    onProgress
+  );
 }

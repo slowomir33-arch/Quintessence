@@ -5,18 +5,24 @@ import { downloadAlbumBlob, downloadMultipleAlbumsFromBackend } from '@/api/albu
 /**
  * Downloads a single album as ZIP from backend
  */
-export async function downloadAlbum(album: Album): Promise<void> {
+export async function downloadAlbum(
+  album: Album, 
+  onProgress?: (progress: number) => void
+): Promise<void> {
   // Use fetch to allow loading state in UI
-  const blob = await downloadAlbumBlob(album.id);
+  const blob = await downloadAlbumBlob(album.id, onProgress);
   saveAs(blob, `Lena ${album.name}.zip`);
 }
 
 /**
  * Downloads multiple albums as a single ZIP from backend
  */
-export async function downloadMultipleAlbums(albums: Album[]): Promise<void> {
+export async function downloadMultipleAlbums(
+  albums: Album[],
+  onProgress?: (progress: number) => void
+): Promise<void> {
   const albumIds = albums.map(a => a.id);
-  const blob = await downloadMultipleAlbumsFromBackend(albumIds);
+  const blob = await downloadMultipleAlbumsFromBackend(albumIds, onProgress);
   
   const filename = albums.length === 1 
     ? `Lena ${albums[0].name}.zip`
