@@ -244,10 +244,10 @@ const KineticGrid: React.FC<KineticGridProps> = ({ progress, onGridReady }) => {
   const dummy = useMemo(() => new THREE.Object3D(), []);
   const gridReadyRef = useRef(false);
   
-  useFrame((state, delta) => {
+  useFrame((_state, _delta) => {
     if (!meshRef.current) return;
     
-    const time = state.clock.elapsedTime;
+    // time = state.clock.elapsedTime (not used directly)
     
     // Logarithmic spawn curve: slow start, rapid finish
     // f(x) = log(1 + x * k) / log(1 + k) where k controls the curve steepness
@@ -432,7 +432,8 @@ interface OrbitingSparkProps {
 
 const OrbitingSpark: React.FC<OrbitingSparkProps> = ({ visible, textBounds }) => {
   const sparkRef = useRef<THREE.Mesh>(null);
-  const [trailPositions, setTrailPositions] = useState<THREE.Vector3[]>([]);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [_trailPositions, setTrailPositions] = useState<THREE.Vector3[]>([]);
   
   // Rectangular orbit parameters
   const padding = 0.8;
@@ -539,7 +540,7 @@ const AmbientParticles: React.FC = () => {
     return [pos, spd];
   }, []);
   
-  useFrame((state) => {
+  useFrame((_state) => {
     if (!particlesRef.current) return;
     
     const positions = particlesRef.current.geometry.attributes.position.array as Float32Array;
@@ -587,12 +588,12 @@ interface SceneProps {
 
 const Scene: React.FC<SceneProps> = ({ text, onComplete }) => {
   const [loadingProgress, setLoadingProgress] = useState(0);
-  const [stage, setStage] = useState<'grid' | 'text' | 'spark'>('grid');
+  const [_stage, setStage] = useState<'grid' | 'text' | 'spark'>('grid');
   const [gridReady, setGridReady] = useState(false);
   const [textReady, setTextReady] = useState(false);
   
   // Simulate loading progress (replace with actual loading logic)
-  useFrame((state, delta) => {
+  useFrame((_state, delta) => {
     if (loadingProgress < 1) {
       // Simulate loading over ~4 seconds
       setLoadingProgress(prev => Math.min(prev + delta * 0.25, 1));

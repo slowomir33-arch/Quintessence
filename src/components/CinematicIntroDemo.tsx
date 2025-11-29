@@ -7,7 +7,7 @@ import CinematicIntro from './CinematicIntro';
  */
 export default function CinematicIntroDemo() {
   const [showIntro, setShowIntro] = useState(true);
-  const [introComplete, setIntroComplete] = useState(false);
+  const [_introComplete, setIntroComplete] = useState(false);
 
   const handleComplete = () => {
     setIntroComplete(true);

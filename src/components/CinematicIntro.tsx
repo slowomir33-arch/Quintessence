@@ -372,7 +372,7 @@ function OrbitingSpark({
     const topLength = 2 * w;
     const rightLength = 2 * h;
     const bottomLength = 2 * w;
-    const leftLength = 2 * h;
+    // leftLength = 2 * h (not used, perimeter calculated differently)
     
     let x = 0, y = 0;
     
