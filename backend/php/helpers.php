@@ -64,16 +64,31 @@ function get_unique_filename(string $dir, string $filename): string {
 }
 
 function parse_upload_path(string $filename): array {
-    $segments = array_values(array_filter(array_map('trim', explode('___', str_replace(['\\', '/'], '___', $filename))), function($part) { return $part !== ''; }));
-    $cleanName = $segments ? array_pop($segments) : $filename;
+    // Pobierz samą nazwę pliku (bez ścieżki)
+    $pathParts = array_values(array_filter(explode('/', str_replace('\\', '/', $filename))));
+    $cleanName = end($pathParts) ?: $filename;
     $folderType = '';
-    for ($i = count($segments) - 1; $i >= 0; $i--) {
-        $segment = strtolower($segments[$i]);
-        if ($segment === 'light' || $segment === 'max') {
-            $folderType = $segment;
+    
+    // 1. Sprawdź czy w ścieżce jest folder light/ lub max/
+    foreach ($pathParts as $part) {
+        $lower = strtolower(trim($part));
+        if ($lower === 'light' || $lower === 'max') {
+            $folderType = $lower;
             break;
         }
     }
+    
+    // 2. Jeśli nie znaleziono w ścieżce, szukaj w nazwie pliku
+    //    Wzorce: __light_, _light_, __max_, _max_, ___light___, itp.
+    if ($folderType === '') {
+        $lowerName = strtolower($cleanName);
+        if (preg_match('/[_\-\.\s]light[_\-\.\s]/i', $lowerName)) {
+            $folderType = 'light';
+        } elseif (preg_match('/[_\-\.\s]max[_\-\.\s]/i', $lowerName)) {
+            $folderType = 'max';
+        }
+    }
+    
     return [$folderType, $cleanName];
 }
 

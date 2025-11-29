@@ -26,7 +26,6 @@ try {
         handle_health();
     }
 
-    // Debug endpoint to check PHP limits and upload info
     if ($method === 'GET' && count($segments) === 2 && $segments[1] === 'debug') {
         send_json(200, [
             'upload_max_filesize' => ini_get('upload_max_filesize'),
@@ -79,6 +78,10 @@ try {
 
     if ($method === 'POST' && count($segments) === 2 && $segments[1] === 'upload') {
         handle_bulk_upload();
+    }
+
+    if ($method === 'POST' && count($segments) === 2 && $segments[1] === 'scan') {
+        handle_scan_albums();
     }
 
     send_error(404, 'Endpoint nie znaleziony');
@@ -264,7 +267,7 @@ function handle_album_zip(string $albumId): void {
     }
 
     $album = $data['albums'][$index];
-    $albumPath = ALBUMS_DIR . '/' . $albumId;
+    $albumPath = DATA_DIR . '/uploads/albums/' . $albumId;
     $lightPath = $albumPath . '/light';
     $maxPath = $albumPath . '/max';
 
@@ -302,7 +305,7 @@ function handle_multi_download(): void {
 
     stream_zip($zipName, function (ZipArchive $zip) use ($albums) {
         foreach ($albums as $album) {
-            $albumPath = ALBUMS_DIR . '/' . $album['id'];
+            $albumPath = DATA_DIR . '/uploads/albums/' . $album['id'];
             $lightPath = $albumPath . '/light';
             $maxPath = $albumPath . '/max';
             $hasLightMax = is_dir($lightPath) && is_dir($maxPath);
@@ -316,6 +319,89 @@ function handle_multi_download(): void {
             }
         }
     });
+}
+
+function handle_scan_albums(): void {
+    $albumsRoot = DATA_DIR . '/uploads/albums';
+    if (!is_dir($albumsRoot)) {
+        send_error(404, 'Brak katalogu z albumami: ' . $albumsRoot);
+    }
+    
+    $albumDirs = array_filter(scandir($albumsRoot), function($d) use ($albumsRoot) {
+        return $d !== '.' && $d !== '..' && is_dir("$albumsRoot/$d");
+    });
+    
+    $data = read_albums_data();
+    $now = gmdate('c');
+    $newAlbums = [];
+    $skipped = [];
+    
+    foreach ($albumDirs as $albumName) {
+        $albumId = $albumName;
+        $lightDir = "$albumsRoot/$albumName/light";
+        $maxDir = "$albumsRoot/$albumName/max";
+        
+        if (!is_dir($lightDir) || !is_dir($maxDir)) {
+            $skipped[] = "$albumName (brak light/max)";
+            continue;
+        }
+        
+        $lightFiles = array_values(array_filter(scandir($lightDir), function($f) use ($lightDir) {
+            return $f !== '.' && $f !== '..' && is_file("$lightDir/$f");
+        }));
+        
+        if (empty($lightFiles)) {
+            $skipped[] = "$albumName (pusty)";
+            continue;
+        }
+        
+        // Sprawdź czy już istnieje
+        $exists = false;
+        foreach ($data['albums'] as $a) {
+            if ($a['id'] === $albumId || $a['name'] === $albumName) {
+                $exists = true;
+                break;
+            }
+        }
+        if ($exists) {
+            $skipped[] = "$albumName (już istnieje)";
+            continue;
+        }
+        
+        $photos = [];
+        foreach ($lightFiles as $file) {
+            $photos[] = [
+                'id' => generate_uuid(),
+                'src' => "/data/uploads/albums/$albumId/light/$file",
+                'thumbnail' => "/data/uploads/albums/$albumId/light/$file",
+                'title' => pathinfo($file, PATHINFO_FILENAME),
+                'width' => 0,
+                'height' => 0,
+                'uploadedAt' => $now,
+            ];
+        }
+        
+        $album = [
+            'id' => $albumId,
+            'name' => $albumName,
+            'thumbnail' => count($photos) ? $photos[0]['thumbnail'] : '',
+            'photos' => $photos,
+            'hasLightMax' => true,
+            'createdAt' => $now,
+            'updatedAt' => $now,
+        ];
+        
+        $data['albums'][] = $album;
+        $newAlbums[] = "$albumName (" . count($photos) . " zdjęć)";
+    }
+    
+    write_albums_data($data);
+    send_json(200, [
+        'message' => 'Zeskanowano albumy',
+        'added' => $newAlbums,
+        'skipped' => $skipped,
+        'totalAlbums' => count($data['albums'])
+    ]);
 }
 
 function read_json_body(): array {
@@ -386,7 +472,6 @@ function ingest_files_into_album(string $albumId, array $files, array &$albumMet
     $hasMaxBatch = count($groups['max']) > 0;
     $requiresStructure = !empty($albumMeta['hasLightMax']);
 
-    // Enforce light/max uploads once an album is flagged as structured
     if ($requiresStructure && (!$hasLightBatch || !$hasMaxBatch)) {
         throw new RuntimeException('Album wymaga wysyłki w strukturze light/max');
     }
@@ -408,7 +493,7 @@ function ingest_files_into_album(string $albumId, array $files, array &$albumMet
             list($width, $height) = get_image_dimensions($targetPath);
             $newPhotos[] = [
                 'id' => generate_uuid(),
-                'src' => '/uploads/albums/' . $albumId . '/light/' . $targetName,
+                'src' => '/data/uploads/albums/' . $albumId . '/light/' . $targetName,
                 'thumbnail' => to_public_path($thumbPath),
                 'title' => pathinfo($targetName, PATHINFO_FILENAME),
                 'width' => $width,
@@ -427,7 +512,6 @@ function ingest_files_into_album(string $albumId, array $files, array &$albumMet
 
         $albumMeta['hasLightMax'] = true;
     } else {
-        // Legacy mode accepts any images and keeps them in the root album directory
         $flatFiles = !empty($groups['other']) ? $groups['other'] : array_merge($groups['light'], $groups['max']);
         foreach ($flatFiles as $entry) {
             $targetName = get_unique_filename($albumPath, $entry['name']);
@@ -439,7 +523,7 @@ function ingest_files_into_album(string $albumId, array $files, array &$albumMet
             list($width, $height) = get_image_dimensions($targetPath);
             $newPhotos[] = [
                 'id' => generate_uuid(),
-                'src' => '/uploads/albums/' . $albumId . '/' . $targetName,
+                'src' => '/data/uploads/albums/' . $albumId . '/' . $targetName,
                 'thumbnail' => to_public_path($thumbPath),
                 'title' => pathinfo($targetName, PATHINFO_FILENAME),
                 'width' => $width,

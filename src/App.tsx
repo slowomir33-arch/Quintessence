@@ -10,6 +10,7 @@ import {
 // Components
 import AmbientBackground from '@/components/AmbientBackground';
 import UploadZone from '@/components/UploadZone';
+import SeamlessVideo from '@/components/SeamlessVideo';
 
 // API & Data
 import { getAlbums, checkHealth, getImageUrl, getThumbnailUrl, deleteAlbum } from '@/api/albums';
@@ -323,25 +324,37 @@ const MobileCinemaMode: React.FC<MobileCinemaModeProps> = ({
       {/* Top bar - minimalistyczny */}
       <div className="absolute top-0 left-0 right-0 z-20 p-3 flex items-center justify-between">
         {/* Counter */}
-        <div className="bg-black/40 backdrop-blur-sm px-2 py-1 rounded-lg">
-          <span className="text-white/70 text-xs">{currentFlatIndex + 1} / {allPhotos.length}</span>
+        <div className="bg-black/20 backdrop-blur-sm px-2 py-1 rounded-lg">
+          <span className="text-white/40 text-xs">{currentFlatIndex + 1} / {allPhotos.length}</span>
         </div>
         
         {/* Right controls */}
         <div className="flex items-center gap-2">
           <motion.button
-            className="p-2 bg-black/40 backdrop-blur-sm rounded-full"
+            className="p-2 backdrop-blur-sm rounded-full"
             onClick={toggleFullscreen}
             whileTap={{ scale: 0.9 }}
+            animate={!_isFullscreen ? {
+              backgroundColor: ["rgba(0,0,0,0.3)", "rgba(0,0,0,0.6)", "rgba(0,0,0,0.3)"]
+            } : { backgroundColor: "rgba(0,0,0,0.3)" }}
+            transition={!_isFullscreen ? { duration: 4, repeat: Infinity, ease: "easeInOut" } : { duration: 0.3 }}
           >
-            <Maximize className="w-4 h-4 text-white/80" />
+            <motion.div
+              animate={!_isFullscreen ? {
+                color: ["rgba(255,255,255,0.6)", "rgba(255,255,255,1)", "rgba(255,255,255,0.6)"],
+                filter: ["drop-shadow(0 0 2px rgba(255,255,255,0.2))", "drop-shadow(0 0 10px rgba(255,255,255,0.8))", "drop-shadow(0 0 2px rgba(255,255,255,0.2))"]
+              } : { color: "rgba(255,255,255,0.6)", filter: "drop-shadow(0 0 0px rgba(255,255,255,0))" }}
+              transition={!_isFullscreen ? { duration: 4, repeat: Infinity, ease: "easeInOut" } : { duration: 0.3 }}
+            >
+              <Maximize className="w-4 h-4" />
+            </motion.div>
           </motion.button>
           <motion.button
-            className="p-2 bg-black/40 backdrop-blur-sm rounded-full"
+            className="p-2 bg-black/20 backdrop-blur-sm rounded-full"
             onClick={onClose}
             whileTap={{ scale: 0.9 }}
           >
-            <X className="w-5 h-5 text-white/80" />
+            <X className="w-5 h-5 text-white/50" />
           </motion.button>
         </div>
       </div>
@@ -379,9 +392,9 @@ const MobileCinemaMode: React.FC<MobileCinemaModeProps> = ({
 
       {/* Bottom progress bar - minimalistyczny, bez instrukcji */}
       <div className="absolute bottom-0 left-0 right-0 h-1">
-        <div className="h-full bg-white/10">
+        <div className="h-full bg-white/5">
           <motion.div
-            className="h-full bg-white/40"
+            className="h-full bg-white/20"
             initial={{ width: 0 }}
             animate={{ width: `${((currentFlatIndex + 1) / allPhotos.length) * 100}%` }}
             transition={{ type: 'spring', stiffness: 300, damping: 30 }}
@@ -389,7 +402,7 @@ const MobileCinemaMode: React.FC<MobileCinemaModeProps> = ({
         </div>
         {/* Świetlisty wskaźnik */}
         <motion.div
-          className="absolute top-1/2 -translate-y-1/2 w-2 h-2 bg-white rounded-full shadow-[0_0_8px_2px_rgba(255,255,255,0.6)]"
+          className="absolute top-1/2 -translate-y-1/2 w-2 h-2 bg-white rounded-full shadow-[0_0_8px_2px_rgba(255,255,255,0.3)]"
           style={{ left: `${((currentFlatIndex + 1) / allPhotos.length) * 100}%` }}
           transition={{ type: 'spring', stiffness: 400, damping: 30 }}
         />
@@ -408,6 +421,7 @@ interface MobileGalleryProps {
   onAlbumChange: (index: number) => void;
   onPhotoChange: (index: number) => void;
   onPhotoClick: (index: number) => void;
+  onLogout: () => void;
 }
 
 // Helper: Generate random size multiplier for masonry (seeded by photo id for consistency)
@@ -509,7 +523,7 @@ const MobileLandscapeSlider: React.FC<MobileLandscapeSliderProps> = ({
         <>
           <button
             onClick={handlePrev}
-            className="absolute left-2 top-1/2 -translate-y-1/2 z-50 p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors backdrop-blur-sm"
+            className="absolute left-14 top-1/2 -translate-y-1/2 z-50 p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors backdrop-blur-sm"
           >
             <ChevronLeft className="w-5 h-5 text-white" />
           </button>
@@ -754,30 +768,31 @@ const MobilePortraitMasonry: React.FC<MobilePortraitMasonryProps> = ({
     }, 3000);
   };
 
-  // Calculate visibility for fade effect
-  const getPhotoOpacity = (top: number, height: number): number => {
-    if (!containerRef.current) return 1;
-    const viewportHeight = containerRef.current.clientHeight;
-    const photoCenter = top + height / 2 - scrollY;
-    const viewportCenter = viewportHeight / 2;
-    const distance = Math.abs(photoCenter - viewportCenter);
-    const maxDistance = viewportHeight / 2;
-    
-    // Full opacity in middle 60%, fade at edges
-    if (distance < maxDistance * 0.3) return 1;
-    if (distance > maxDistance) return 0;
-    return 1 - ((distance - maxDistance * 0.3) / (maxDistance * 0.7));
-  };
-
   const scrollProgress = containerRef.current 
     ? scrollY / Math.max(totalHeight - containerRef.current.clientHeight, 1) 
     : 0;
 
   return (
     <div className="relative w-full h-full overflow-hidden">
-      {/* Gradient masks for fade effect */}
-      <div className="absolute top-0 left-0 right-0 h-24 bg-gradient-to-b from-black via-black/80 to-transparent z-10 pointer-events-none" />
-      <div className="absolute bottom-0 left-0 right-0 h-24 bg-gradient-to-t from-black via-black/80 to-transparent z-10 pointer-events-none" />
+      {/* Progressive Blur Overlays */}
+      <div 
+        className="absolute top-0 left-0 right-0 h-40 z-10 pointer-events-none"
+        style={{
+          backdropFilter: 'blur(12px)',
+          WebkitBackdropFilter: 'blur(12px)',
+          maskImage: 'linear-gradient(to bottom, black, transparent)',
+          WebkitMaskImage: 'linear-gradient(to bottom, black, transparent)'
+        }}
+      />
+      <div 
+        className="absolute bottom-0 left-0 right-0 h-40 z-10 pointer-events-none"
+        style={{
+          backdropFilter: 'blur(12px)',
+          WebkitBackdropFilter: 'blur(12px)',
+          maskImage: 'linear-gradient(to top, black, transparent)',
+          WebkitMaskImage: 'linear-gradient(to top, black, transparent)'
+        }}
+      />
 
       {/* Masonry container */}
       <div
@@ -795,9 +810,8 @@ const MobilePortraitMasonry: React.FC<MobilePortraitMasonryProps> = ({
                 key={colIndex} 
                 className="flex-1 flex flex-col gap-1.5"
               >
-                {column.items.map(({ photo, index, size, top }) => {
+                {column.items.map(({ photo, index, size }) => {
                   const height = baseSize * size;
-                  const opacity = getPhotoOpacity(top, height);
                   
                   return (
                     <motion.div
@@ -805,7 +819,6 @@ const MobilePortraitMasonry: React.FC<MobilePortraitMasonryProps> = ({
                       className="relative overflow-hidden rounded-lg cursor-pointer"
                       style={{ 
                         height,
-                        opacity,
                       }}
                       whileTap={{ scale: 0.95 }}
                       onClick={() => onPhotoClick(index)}
@@ -853,6 +866,7 @@ const MobileGallery: React.FC<MobileGalleryProps> = ({
   onAlbumChange,
   onPhotoChange,
   onPhotoClick,
+  onLogout,
 }) => {
   const orientation = useOrientation();
   const currentAlbum = albums[activeAlbumIndex];
@@ -904,14 +918,35 @@ const MobileGallery: React.FC<MobileGalleryProps> = ({
       {orientation === 'landscape' ? (
         <motion.div
           key="landscape"
-          className="h-screen flex relative"
+          className="h-[100dvh] flex relative w-full overflow-hidden bg-black"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.3 }}
         >
+          {/* Video Background */}
+          <div className="absolute inset-0 z-0 overflow-hidden">
+            <SeamlessVideo
+              src="/bg-video.mp4"
+              playbackRate={0.6}
+              className="absolute inset-0 w-full h-full"
+              style={{
+                filter: 'blur(20px) brightness(1.2) contrast(1.2)',
+                transform: 'scale(1.1)'
+              }}
+            />
+            {/* Light enhancing overlay */}
+            <div 
+              className="absolute inset-0 transition-opacity duration-1000"
+              style={{
+                background: 'rgba(255, 255, 255, 0.1)',
+                mixBlendMode: 'overlay'
+              }}
+            />
+          </div>
+
           {/* Main slider area - 90% */}
-          <div className="flex-1 relative overflow-hidden" style={{ width: '90%' }}>
+          <div className="flex-1 relative overflow-hidden z-10" style={{ width: '90%' }}>
             {/* Counter */}
             <div className="absolute top-3 left-3 z-20 bg-black/50 backdrop-blur-sm px-2 py-1 rounded-lg">
               <span className="text-white/70 text-xs">
@@ -920,12 +955,24 @@ const MobileGallery: React.FC<MobileGalleryProps> = ({
             </div>
 
             {/* Fullscreen toggle */}
-            <button
+            <motion.button
               onClick={toggleFullscreen}
-              className="absolute top-3 right-3 z-20 p-1.5 bg-black/50 backdrop-blur-sm rounded-lg text-white/70"
+              className="absolute top-3 right-3 z-20 p-1.5 backdrop-blur-sm rounded-lg"
+              animate={!_isFullscreen ? {
+                backgroundColor: ["rgba(0,0,0,0.3)", "rgba(0,0,0,0.6)", "rgba(0,0,0,0.3)"]
+              } : { backgroundColor: "rgba(0,0,0,0.3)" }}
+              transition={!_isFullscreen ? { duration: 4, repeat: Infinity, ease: "easeInOut" } : { duration: 0.3 }}
             >
-              <Maximize className="w-4 h-4" />
-            </button>
+              <motion.div
+                animate={!_isFullscreen ? {
+                  color: ["rgba(255,255,255,0.6)", "rgba(255,255,255,1)", "rgba(255,255,255,0.6)"],
+                  filter: ["drop-shadow(0 0 2px rgba(255,255,255,0.2))", "drop-shadow(0 0 10px rgba(255,255,255,0.8))", "drop-shadow(0 0 2px rgba(255,255,255,0.2))"]
+                } : { color: "rgba(255,255,255,0.6)", filter: "drop-shadow(0 0 0px rgba(255,255,255,0))" }}
+                transition={!_isFullscreen ? { duration: 4, repeat: Infinity, ease: "easeInOut" } : { duration: 0.3 }}
+              >
+                <Maximize className="w-4 h-4" />
+              </motion.div>
+            </motion.button>
 
             {/* 3D Slider */}
             <div className="w-full h-full pt-2 pb-4 pl-3 pr-2">
@@ -947,47 +994,17 @@ const MobileGallery: React.FC<MobileGalleryProps> = ({
             </div>
           </div>
 
-          {/* Album thumbnails - 10% */}
-          <div className="w-[10%] min-w-[50px] bg-black/50 backdrop-blur-md flex flex-col py-2 gap-1.5 overflow-y-auto">
-            {albums.map((album, index) => (
-              <motion.button
-                key={album.id}
-                className={`mx-1 aspect-square rounded-md overflow-hidden transition-all ${
-                  index === activeAlbumIndex ? 'ring-2 ring-white shadow-lg' : 'opacity-40'
-                }`}
-                onClick={() => {
-                  onAlbumChange(index);
-                  onPhotoChange(0);
-                }}
-                whileTap={{ scale: 0.85 }}
-              >
-                {album.thumbnail ? (
-                  <img src={album.thumbnail} alt="" className="w-full h-full object-cover" />
-                ) : (
-                  <div className="w-full h-full bg-gray-700 flex items-center justify-center">
-                    <Image className="w-3 h-3 text-white/30" />
-                  </div>
-                )}
-              </motion.button>
-            ))}
-          </div>
-        </motion.div>
-      ) : (
-        <motion.div
-          key="portrait"
-          className="h-screen relative"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.3 }}
-        >
-          {/* Album selector at top */}
-          <div className="absolute top-0 left-0 right-0 z-20 pt-4 pb-2 px-[22%] bg-gradient-to-b from-black via-black/80 to-transparent">
-            <div className="flex gap-2 overflow-x-auto py-1 scrollbar-hide justify-center">
+          {/* Album thumbnails - 10%, ends 20% from bottom for exit button */}
+          <div 
+            className="w-[10%] min-w-[50px] bg-black/50 backdrop-blur-md flex flex-col relative"
+            style={{ height: '80%' }}
+          >
+            {/* Scrollable thumbnail container */}
+            <div className="flex-1 overflow-y-auto py-2 gap-1.5 flex flex-col scrollbar-hide overscroll-contain">
               {albums.map((album, index) => (
                 <motion.button
                   key={album.id}
-                  className={`flex-shrink-0 w-12 h-12 rounded-lg overflow-hidden transition-all ${
+                  className={`mx-1 flex-shrink-0 aspect-square rounded-md overflow-hidden transition-all ${
                     index === activeAlbumIndex ? 'ring-2 ring-white shadow-lg' : 'opacity-40'
                   }`}
                   onClick={() => {
@@ -1006,12 +1023,50 @@ const MobileGallery: React.FC<MobileGalleryProps> = ({
                 </motion.button>
               ))}
             </div>
+            {/* Bottom gradient mask */}
+            <div 
+              className="absolute bottom-0 left-0 right-0 h-8 pointer-events-none"
+              style={{
+                background: 'linear-gradient(to top, rgba(0,0,0,0.8) 0%, transparent 100%)'
+              }}
+            />
+          </div>
+
+          {/* Logout button for landscape */}
+          <motion.button
+            onClick={onLogout}
+            className="absolute bottom-4 right-4 z-50 p-2 bg-black/40 hover:bg-black/60 backdrop-blur-sm rounded-lg text-white/60 hover:text-white transition-colors"
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+          >
+            <LogOut className="w-4 h-4" />
+          </motion.button>
+        </motion.div>
+      ) : (
+        <motion.div
+          key="portrait"
+          className="h-[100dvh] relative w-full overflow-hidden bg-black"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.3 }}
+        >
+          {/* Top Bar: Fullscreen & Logout */}
+          <div className="absolute top-0 left-0 right-0 z-20 h-20 flex items-center justify-between px-4 pt-2">
             <button
               onClick={toggleFullscreen}
               className="p-2 bg-black/50 backdrop-blur-sm rounded-lg text-white/70"
             >
-              <Maximize className="w-4 h-4" />
+              <Maximize className="w-5 h-5" />
             </button>
+
+            <motion.button
+              onClick={onLogout}
+              className="p-2 bg-black/50 backdrop-blur-sm rounded-lg text-white/70"
+              whileTap={{ scale: 0.9 }}
+            >
+              <LogOut className="w-5 h-5" />
+            </motion.button>
           </div>
 
           {/* Masonry grid */}
@@ -1021,6 +1076,57 @@ const MobileGallery: React.FC<MobileGalleryProps> = ({
             onActiveChange={onPhotoChange}
             onPhotoClick={onPhotoClick}
           />
+
+          {/* Bottom Floating Glass Panel for Albums */}
+          <div className="absolute bottom-8 left-0 right-0 z-30 flex justify-center pointer-events-none">
+            <div 
+              className="w-[75%] bg-black/40 backdrop-blur-xl rounded-2xl border border-white/20 p-2 pointer-events-auto shadow-[0_0_25px_rgba(255,255,255,0.15)]"
+            >
+              <div 
+                className="relative w-full"
+                style={{
+                  maskImage: 'linear-gradient(to right, transparent, black 15%, black 85%, transparent)',
+                  WebkitMaskImage: 'linear-gradient(to right, transparent, black 15%, black 85%, transparent)'
+                }}
+              >
+                <div className="overflow-x-auto scrollbar-hide overscroll-contain">
+                  <motion.div 
+                    className="flex gap-2 w-max mx-auto px-4"
+                    animate={{ x: [0, -12, 4, 0] }}
+                    transition={{ 
+                      duration: 2.5, 
+                      times: [0, 0.3, 0.6, 1],
+                      ease: "easeInOut", 
+                      repeat: Infinity, 
+                      repeatDelay: 6 
+                    }}
+                  >
+                    {albums.map((album, index) => (
+                      <motion.button
+                        key={album.id}
+                        className={`flex-shrink-0 w-12 h-12 rounded-lg overflow-hidden transition-all ${
+                          index === activeAlbumIndex ? 'ring-2 ring-white shadow-lg' : 'opacity-40'
+                        }`}
+                        onClick={() => {
+                          onAlbumChange(index);
+                          onPhotoChange(0);
+                        }}
+                        whileTap={{ scale: 0.85 }}
+                      >
+                        {album.thumbnail ? (
+                          <img src={album.thumbnail} alt="" className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full bg-gray-700 flex items-center justify-center">
+                            <Image className="w-3 h-3 text-white/30" />
+                          </div>
+                        )}
+                      </motion.button>
+                    ))}
+                  </motion.div>
+                </div>
+              </div>
+            </div>
+          </div>
         </motion.div>
       )}
     </AnimatePresence>
@@ -1253,7 +1359,7 @@ const CinemaMode: React.FC<CinemaModeProps> = ({
       {/* Top bar with controls - minimalistyczny */}
       <div className="absolute top-0 left-0 right-0 z-20 flex items-center justify-between p-4">
         {/* Photo counter only - bez nazwy albumu */}
-        <div className="text-white/50 text-sm bg-black/30 backdrop-blur-sm px-3 py-1.5 rounded-lg">
+        <div className="text-white/40 text-sm bg-black/20 backdrop-blur-sm px-3 py-1.5 rounded-lg">
           {currentFlatIndex + 1} / {allPhotos.length}
         </div>
 
@@ -1261,23 +1367,35 @@ const CinemaMode: React.FC<CinemaModeProps> = ({
         <div className="flex items-center gap-2">
           {/* Fullscreen button */}
           <motion.button
-            className="p-2.5 bg-black/30 hover:bg-black/50 backdrop-blur-sm rounded-full transition-colors"
+            className="p-2.5 backdrop-blur-sm rounded-full transition-colors"
             onClick={toggleFullscreen}
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             title={isFullscreen ? "Wyłącz pełny ekran" : "Pełny ekran"}
+            animate={!isFullscreen ? {
+              backgroundColor: ["rgba(0,0,0,0.3)", "rgba(0,0,0,0.6)", "rgba(0,0,0,0.3)"]
+            } : { backgroundColor: "rgba(0,0,0,0.3)" }}
+            transition={!isFullscreen ? { duration: 4, repeat: Infinity, ease: "easeInOut" } : { duration: 0.3 }}
           >
-            <Maximize className="w-5 h-5 text-white/70" />
+            <motion.div
+              animate={!isFullscreen ? {
+                color: ["rgba(255,255,255,0.6)", "rgba(255,255,255,1)", "rgba(255,255,255,0.6)"],
+                filter: ["drop-shadow(0 0 2px rgba(255,255,255,0.2))", "drop-shadow(0 0 10px rgba(255,255,255,0.8))", "drop-shadow(0 0 2px rgba(255,255,255,0.2))"]
+              } : { color: "rgba(255,255,255,0.6)", filter: "drop-shadow(0 0 0px rgba(255,255,255,0))" }}
+              transition={!isFullscreen ? { duration: 4, repeat: Infinity, ease: "easeInOut" } : { duration: 0.3 }}
+            >
+              <Maximize className="w-5 h-5" />
+            </motion.div>
           </motion.button>
 
           {/* Close button */}
           <motion.button
-            className="p-2.5 bg-black/30 hover:bg-red-500/70 backdrop-blur-sm rounded-full transition-colors"
+            className="p-2.5 bg-black/20 hover:bg-red-500/70 backdrop-blur-sm rounded-full transition-colors"
             onClick={handleClose}
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
           >
-            <X className="w-5 h-5 text-white" />
+            <X className="w-5 h-5 text-white/50" />
           </motion.button>
         </div>
       </div>
@@ -1286,12 +1404,12 @@ const CinemaMode: React.FC<CinemaModeProps> = ({
       <div className="absolute left-0 top-0 bottom-0 w-16 md:w-20 z-10 flex items-center justify-start pl-2 md:pl-3">
         {currentFlatIndex > 0 && (
           <motion.button
-            className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors"
+            className="p-2 bg-white/5 hover:bg-white/20 rounded-full transition-colors"
             onClick={goPrev}
             whileHover={{ scale: 1.1 }}
             whileTap={{ scale: 0.9 }}
           >
-            <ChevronLeft className="w-4 h-4 text-white" />
+            <ChevronLeft className="w-4 h-4 text-white/50" />
           </motion.button>
         )}
       </div>
@@ -1299,12 +1417,12 @@ const CinemaMode: React.FC<CinemaModeProps> = ({
       <div className="absolute right-0 top-0 bottom-0 w-16 md:w-20 z-10 flex items-center justify-end pr-2 md:pr-3">
         {currentFlatIndex < allPhotos.length - 1 && (
           <motion.button
-            className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors"
+            className="p-2 bg-white/5 hover:bg-white/20 rounded-full transition-colors"
             onClick={goNext}
             whileHover={{ scale: 1.1 }}
             whileTap={{ scale: 0.9 }}
           >
-            <ChevronRight className="w-4 h-4 text-white" />
+            <ChevronRight className="w-4 h-4 text-white/50" />
           </motion.button>
         )}
       </div>
@@ -1354,7 +1472,7 @@ const CinemaMode: React.FC<CinemaModeProps> = ({
       <div className="absolute bottom-3 left-0 right-0 z-20 px-8">
         <div 
           ref={scrollbarRef}
-          className="relative h-1 bg-white/15 rounded-full cursor-pointer"
+          className="relative h-1 bg-white/5 rounded-full cursor-pointer"
           onPointerDown={handleScrollbarPointerDown}
         >
           {/* Album markers - podziałki wewnątrz paska */}
@@ -1368,7 +1486,7 @@ const CinemaMode: React.FC<CinemaModeProps> = ({
             return (
               <div
                 key={album.id}
-                className="absolute top-0 w-px h-full bg-white/40"
+                className="absolute top-0 w-px h-full bg-white/20"
                 style={{ left: `${markerPosition}%` }}
               />
             );
@@ -1376,14 +1494,14 @@ const CinemaMode: React.FC<CinemaModeProps> = ({
           
           {/* Progress fill */}
           <motion.div 
-            className="absolute left-0 top-0 bottom-0 bg-white/30 rounded-full"
+            className="absolute left-0 top-0 bottom-0 bg-white/20 rounded-full"
             animate={{ width: `${progressPercentage}%` }}
             transition={{ type: 'spring', stiffness: 300, damping: 30 }}
           />
           
           {/* Świetlisty punkt - środek zawsze na linii */}
           <motion.div
-            className="absolute w-4 h-4 bg-white rounded-full shadow-[0_0_10px_3px_rgba(255,255,255,0.6)] cursor-grab active:cursor-grabbing z-20"
+            className="absolute w-4 h-4 bg-white rounded-full shadow-[0_0_10px_3px_rgba(255,255,255,0.3)] cursor-grab active:cursor-grabbing z-20"
             style={{ top: '50%', marginTop: '-8px' }}
             animate={{ left: `calc(${progressPercentage}% - 8px)` }}
             whileHover={{ scale: 1.2, boxShadow: '0 0 15px 5px rgba(255,255,255,0.8)' }}
@@ -1852,6 +1970,7 @@ const GalleryPage: React.FC = () => {
             }}
             onPhotoChange={setActivePhotoIndex}
             onPhotoClick={openCinemaMode}
+            onLogout={handleLogout}
           />
         </>
       ) : (
@@ -1870,27 +1989,27 @@ const GalleryPage: React.FC = () => {
           <motion.aside
             className="fixed left-0 top-0 bottom-0 w-52 z-40 flex flex-col"
             style={{
-              background: 'rgba(0, 0, 0, 0.7)',
+              background: 'rgba(0, 0, 0, 0.3)',
               backdropFilter: 'blur(20px)',
               borderRight: '1px solid rgba(255, 255, 255, 0.1)',
             }}
           >
             {/* Album List */}
-            <div className="flex-1 overflow-y-auto p-4 pt-4 space-y-3">
+            <div className="flex-1 overflow-y-auto p-6 space-y-6">
               {albums.map((album, index) => (
                 <motion.div
                   key={album.id}
-                  className={`relative rounded-xl overflow-hidden cursor-pointer transition-all ${
+                  className={`relative rounded-xl overflow-hidden cursor-pointer transition-all duration-300 ${
                     index === activeAlbumIndex 
-                      ? 'ring-2 ring-white shadow-lg' 
-                      : 'opacity-70 hover:opacity-100'
+                      ? 'ring-2 ring-white shadow-lg grayscale-0' 
+                      : 'opacity-80 hover:opacity-100 grayscale hover:grayscale-0'
                   }`}
                   onClick={() => handleAlbumSelect(index)}
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
                 >
                   {/* Thumbnail */}
-                  <div className="aspect-[4/3] bg-gray-800">
+                  <div className="aspect-square bg-gray-800">
                     {album.thumbnail ? (
                       <img
                         src={album.thumbnail}
@@ -1939,7 +2058,7 @@ const GalleryPage: React.FC = () => {
                 <button
                   onClick={handlePrimaryDownload}
                   disabled={isDownloading || selectedCount === 0}
-                  className="w-full py-2.5 px-4 bg-white/10 hover:bg-white/20 rounded-lg text-white text-sm flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+                  className="w-full py-2.5 px-4 bg-white/10 hover:bg-black/80 rounded-lg text-white hover:text-white hover:shadow-[0_0_15px_rgba(255,255,255,0.2)] text-sm flex items-center justify-center gap-2 transition-all duration-300 disabled:opacity-50"
                 >
                   <Download className="w-4 h-4" />
                   {downloadButtonLabel}
@@ -1948,7 +2067,7 @@ const GalleryPage: React.FC = () => {
                 <button
                   onClick={handleDownloadAll}
                   disabled={isDownloading || albums.length === 0}
-                  className="w-full py-2.5 px-4 bg-white/5 hover:bg-white/10 rounded-lg text-white/70 text-sm flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+                  className="w-full py-2.5 px-4 bg-white/5 hover:bg-black/80 rounded-lg text-white/70 hover:text-white hover:shadow-[0_0_15px_rgba(255,255,255,0.2)] text-sm flex items-center justify-center gap-2 transition-all duration-300 disabled:opacity-50"
                 >
                   <Download className="w-4 h-4" />
                   Pobierz całość
@@ -1966,6 +2085,27 @@ const GalleryPage: React.FC = () => {
         <Maximize className="w-5 h-5" />
         <span className="text-sm">Pełny ekran</span>
       </button>
+
+      {/* Video Background - Desktop */}
+      <div className="fixed inset-0 z-0 overflow-hidden">
+        <SeamlessVideo
+          src="/bg-video.mp4"
+          playbackRate={0.6}
+          className="absolute inset-0 w-full h-full"
+          style={{ 
+            filter: 'blur(20px) brightness(1.2) contrast(1.2)',
+            transform: 'scale(1.1)'
+          }}
+        />
+        {/* Light enhancing overlay */}
+        <div 
+          className="absolute inset-0 transition-opacity duration-1000"
+          style={{
+            background: 'rgba(255, 255, 255, 0.1)',
+            mixBlendMode: 'overlay'
+          }}
+        />
+      </div>
 
       {/* Main Content - Desktop 3D Slider */}
       <main className="ml-52 h-screen relative z-10 flex items-center justify-center overflow-hidden">
@@ -2066,16 +2206,18 @@ const GalleryPage: React.FC = () => {
       </AnimatePresence>
 
       {/* Logout button - prawy dolny róg, minimalistyczny */}
-      <motion.button
-        onClick={handleLogout}
-        className="fixed bottom-4 right-4 z-50 px-3 py-2 bg-black/40 hover:bg-black/60 backdrop-blur-sm rounded-lg text-white/60 hover:text-white text-xs flex items-center gap-2 transition-colors"
-        whileHover={{ scale: 1.05 }}
-        whileTap={{ scale: 0.95 }}
-        title="Wyloguj"
-      >
-        <LogOut className="w-4 h-4" />
-        <span className="hidden md:inline">Wyjdź</span>
-      </motion.button>
+      {!isMobile && (
+        <motion.button
+          onClick={handleLogout}
+          className="fixed bottom-4 right-4 z-50 px-3 py-2 bg-black/40 hover:bg-black/60 backdrop-blur-sm rounded-lg text-white/60 hover:text-white text-xs flex items-center gap-2 transition-colors"
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          title="Wyloguj"
+        >
+          <LogOut className="w-4 h-4" />
+          <span className="hidden md:inline">Wyjdź</span>
+        </motion.button>
+      )}
     </div>
   );
 };

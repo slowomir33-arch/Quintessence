@@ -3,9 +3,14 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Upload, FolderUp, X, Image, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
 import { uploadAlbum } from '@/api/albums';
 
+interface UploadedFile {
+  file: File;
+  relativePath: string; // ścieżka względna np. "light/plik.jpg" lub "max/plik.jpg"
+}
+
 interface UploadedFolder {
   name: string;
-  files: File[];
+  files: UploadedFile[];
   previews: string[];
 }
 
@@ -27,11 +32,12 @@ const UploadZone: React.FC<UploadZoneProps> = ({
   const [uploadProgress, setUploadProgress] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Helper function to recursively read all files from a directory
+  // Helper function to recursively read all files from a directory, preserving relative paths
   const readAllFilesFromDirectory = async (
-    dirEntry: FileSystemDirectoryEntry
-  ): Promise<File[]> => {
-    const files: File[] = [];
+    dirEntry: FileSystemDirectoryEntry,
+    basePath: string = ''
+  ): Promise<UploadedFile[]> => {
+    const files: UploadedFile[] = [];
     const dirReader = dirEntry.createReader();
 
     // Read all entries (readEntries may need multiple calls for large directories)
@@ -61,11 +67,14 @@ const UploadZone: React.FC<UploadZoneProps> = ({
           (entry as FileSystemFileEntry).file(resolve);
         });
         if (file.type.startsWith('image/')) {
-          files.push(file);
+          // Zachowaj ścieżkę względną (np. "light/plik.jpg" lub "max/plik.jpg")
+          const relativePath = basePath ? `${basePath}/${file.name}` : file.name;
+          files.push({ file, relativePath });
         }
       } else if (entry.isDirectory) {
-        // Recursively read subdirectories
-        const subFiles = await readAllFilesFromDirectory(entry as FileSystemDirectoryEntry);
+        // Recursively read subdirectories, passing the subdirectory name as part of path
+        const subPath = basePath ? `${basePath}/${entry.name}` : entry.name;
+        const subFiles = await readAllFilesFromDirectory(entry as FileSystemDirectoryEntry, subPath);
         files.push(...subFiles);
       }
     }
@@ -87,15 +96,15 @@ const UploadZone: React.FC<UploadZoneProps> = ({
         const entry = item.webkitGetAsEntry?.();
         
         if (entry?.isDirectory) {
-          // Handle folder - read all files recursively
+          // Handle folder - read all files recursively with paths
           const files = await readAllFilesFromDirectory(entry as FileSystemDirectoryEntry);
           
           if (files.length > 0) {
             // Sort files by name for consistent ordering
-            files.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+            files.sort((a, b) => a.file.name.localeCompare(b.file.name, undefined, { numeric: true }));
             
             // Create previews (limit to first 10 for performance)
-            const previews = files.slice(0, 10).map(file => URL.createObjectURL(file));
+            const previews = files.slice(0, 10).map(f => URL.createObjectURL(f.file));
             
             return {
               name: entry.name,
@@ -120,13 +129,13 @@ const UploadZone: React.FC<UploadZoneProps> = ({
     const results = await Promise.all(processingPromises);
 
     // Collect single files into "Nowy Album"
-    const singleFiles: File[] = [];
+    const singleFiles: UploadedFile[] = [];
     
     for (const result of results) {
       if (result === null) continue;
       
       if ('isSingleFile' in result && result.file) {
-        singleFiles.push(result.file);
+        singleFiles.push({ file: result.file, relativePath: result.file.name });
       } else {
         folders.push(result);
       }
@@ -137,7 +146,7 @@ const UploadZone: React.FC<UploadZoneProps> = ({
       folders.push({
         name: 'Nowy Album',
         files: singleFiles,
-        previews: singleFiles.slice(0, 10).map(f => URL.createObjectURL(f)),
+        previews: singleFiles.slice(0, 10).map(f => URL.createObjectURL(f.file)),
       });
     }
 
@@ -151,21 +160,26 @@ const UploadZone: React.FC<UploadZoneProps> = ({
     const files = Array.from(e.target.files || []);
     if (files.length === 0) return;
 
-    // Group files by their folder path
-    const folderMap = new Map<string, { files: File[]; previews: string[] }>();
+    // Group files by their top-level folder, preserving relative paths for light/max
+    const folderMap = new Map<string, { files: UploadedFile[]; previews: string[] }>();
 
     files.forEach((file) => {
-      // Get folder name from path
+      // webkitRelativePath = "AlbumName/light/plik.jpg" lub "AlbumName/max/plik.jpg"
       const pathParts = file.webkitRelativePath?.split('/') || [file.name];
       const folderName = pathParts.length > 1 ? pathParts[0] : 'Nowy Album';
+      
+      // Ścieżka względna BEZ nazwy głównego folderu (zostaje np. "light/plik.jpg")
+      const relativePath = pathParts.length > 1 ? pathParts.slice(1).join('/') : file.name;
 
       if (file.type.startsWith('image/')) {
         if (!folderMap.has(folderName)) {
           folderMap.set(folderName, { files: [], previews: [] });
         }
         const folder = folderMap.get(folderName)!;
-        folder.files.push(file);
-        folder.previews.push(URL.createObjectURL(file));
+        folder.files.push({ file, relativePath });
+        if (folder.previews.length < 10) {
+          folder.previews.push(URL.createObjectURL(file));
+        }
       }
     });
 

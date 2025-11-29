@@ -8,7 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "api": "php -S localhost:3001 -t backend backend/php/router.php"
+    "api": "cd backend && npm start"
   },
   "dependencies": {
     "@react-three/drei": "^9.88.17",

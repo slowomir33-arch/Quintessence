@@ -11,7 +11,7 @@ const ALLOWED_MIME_TYPES = [
 
 const THUMBNAIL_SIZE = 400;
 
-const STORAGE_ROOT = __DIR__ . '/..';
+const STORAGE_ROOT = __DIR__;
 const UPLOADS_DIR = STORAGE_ROOT . '/uploads';
 const ALBUMS_DIR = UPLOADS_DIR . '/albums';
 const THUMBNAILS_DIR = UPLOADS_DIR . '/thumbnails';

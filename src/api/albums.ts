@@ -157,6 +157,11 @@ export async function deletePhoto(
 const BATCH_SIZE = 5; // Upload 5 files at a time (for large files like 50MB each)
 const UPLOAD_TIMEOUT = 600000; // 10 minutes timeout per batch
 
+interface UploadedFile {
+  file: File;
+  relativePath: string; // np. "light/plik.jpg" lub "max/plik.jpg"
+}
+
 /**
  * Upload a single batch of files
  */
@@ -198,11 +203,22 @@ async function uploadBatch(
 }
 
 /**
+ * Append file to FormData with custom filename that includes relative path
+ * This preserves light/max folder structure for backend to parse
+ */
+function appendFileWithPath(formData: FormData, uploadedFile: UploadedFile): void {
+  // Wysyłamy plik z nazwą zawierającą ścieżkę względną
+  // np. "light/plik.jpg" lub "max/plik.jpg" lub "18_Leny!__light_2025-11-08___57A8703.jpg"
+  formData.append('photos', uploadedFile.file, uploadedFile.relativePath);
+}
+
+/**
  * Upload entire album (creates album + uploads all photos in batches)
+ * Files should include relativePath for light/max folder structure
  */
 export async function uploadAlbum(
   albumName: string,
-  files: File[],
+  files: UploadedFile[],
   onProgress?: (progress: number) => void
 ): Promise<{ message: string; album: Album }> {
   
@@ -210,7 +226,7 @@ export async function uploadAlbum(
   if (files.length <= BATCH_SIZE) {
     const formData = new FormData();
     formData.append('albumName', albumName);
-    files.forEach((file) => formData.append('photos', file));
+    files.forEach((f) => appendFileWithPath(formData, f));
     
     const result = await uploadBatch(
       `${API_BASE_URL}/api/upload`,
@@ -227,7 +243,7 @@ export async function uploadAlbum(
   const firstBatch = files.slice(0, BATCH_SIZE);
   const formData = new FormData();
   formData.append('albumName', albumName);
-  firstBatch.forEach((file) => formData.append('photos', file));
+  firstBatch.forEach((f) => appendFileWithPath(formData, f));
   
   let totalUploaded = 0;
   const totalFiles = files.length;
@@ -253,7 +269,7 @@ export async function uploadAlbum(
   for (let i = 0; i < remainingFiles.length; i += BATCH_SIZE) {
     const batch = remainingFiles.slice(i, i + BATCH_SIZE);
     const batchFormData = new FormData();
-    batch.forEach((file) => batchFormData.append('photos', file));
+    batch.forEach((f) => appendFileWithPath(batchFormData, f));
     
     await uploadBatch(
       `${API_BASE_URL}/api/albums/${albumId}/photos`,
