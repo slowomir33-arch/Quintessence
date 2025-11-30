@@ -200,6 +200,26 @@ const MobileCinemaMode: React.FC<MobileCinemaModeProps> = ({
     setPhotoIndex(target.photoIndex);
   }, [allPhotos]);
 
+  // Keyboard navigation
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        goToFlatIndex(currentFlatIndex + 1);
+      }
+      else if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        goToFlatIndex(currentFlatIndex - 1);
+      }
+      else if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [currentFlatIndex, goToFlatIndex, onClose]);
+
   // Double tap to zoom
   const handleTap = useCallback(() => {
     const now = Date.now();
@@ -422,6 +442,7 @@ interface MobileGalleryProps {
   onPhotoChange: (index: number) => void;
   onPhotoClick: (index: number) => void;
   onLogout: () => void;
+  isCinemaMode?: boolean;
 }
 
 // Helper: Generate random size multiplier for masonry (seeded by photo id for consistency)
@@ -875,6 +896,7 @@ const MobileGallery: React.FC<MobileGalleryProps> = ({
   onPhotoChange,
   onPhotoClick,
   onLogout,
+  isCinemaMode,
 }) => {
   const orientation = useOrientation();
   const currentAlbum = albums[activeAlbumIndex];
@@ -1041,14 +1063,16 @@ const MobileGallery: React.FC<MobileGalleryProps> = ({
           </div>
 
           {/* Logout button for landscape */}
-          <motion.button
-            onClick={onLogout}
-            className="absolute bottom-4 right-4 z-50 p-2 bg-black/40 hover:bg-black/60 backdrop-blur-sm rounded-lg text-white/60 hover:text-white transition-colors"
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-          >
-            <LogOut className="w-4 h-4" />
-          </motion.button>
+          {!isCinemaMode && (
+            <motion.button
+              onClick={onLogout}
+              className="absolute bottom-4 right-4 z-50 p-2 bg-black/40 hover:bg-black/60 backdrop-blur-sm rounded-lg text-white/60 hover:text-white transition-colors"
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+            >
+              <LogOut className="w-4 h-4" />
+            </motion.button>
+          )}
         </motion.div>
       ) : (
         <motion.div
@@ -1068,13 +1092,15 @@ const MobileGallery: React.FC<MobileGalleryProps> = ({
               <Maximize className="w-5 h-5" />
             </button>
 
-            <motion.button
-              onClick={onLogout}
-              className="p-2 bg-black/50 backdrop-blur-sm rounded-lg text-white/70"
-              whileTap={{ scale: 0.9 }}
-            >
-              <LogOut className="w-5 h-5" />
-            </motion.button>
+            {!isCinemaMode && (
+              <motion.button
+                onClick={onLogout}
+                className="p-2 bg-black/50 backdrop-blur-sm rounded-lg text-white/70"
+                whileTap={{ scale: 0.9 }}
+              >
+                <LogOut className="w-5 h-5" />
+              </motion.button>
+            )}
           </div>
 
           {/* Masonry grid */}
@@ -1214,9 +1240,18 @@ const CinemaMode: React.FC<CinemaModeProps> = ({
   // Keyboard navigation
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowRight') goNext();
-      else if (e.key === 'ArrowLeft') goPrev();
-      else if (e.key === 'Escape') handleClose();
+      if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        goNext();
+      }
+      else if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        goPrev();
+      }
+      else if (e.key === 'Escape') {
+        e.preventDefault();
+        handleClose();
+      }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
@@ -1528,9 +1563,10 @@ interface SliderProps {
   activeIndex: number;
   onActiveChange: (index: number) => void;
   className?: string;
+  enableKeyboard?: boolean;
 }
 
-const Slider3D: React.FC<SliderProps> = ({ photos, onPhotoClick, activeIndex, onActiveChange, className = '' }) => {
+const Slider3D: React.FC<SliderProps> = ({ photos, onPhotoClick, activeIndex, onActiveChange, className = '', enableKeyboard = true }) => {
   const [isDragging, setIsDragging] = useState(false);
   const dragStartX = useRef(0);
 
@@ -1577,13 +1613,14 @@ const Slider3D: React.FC<SliderProps> = ({ photos, onPhotoClick, activeIndex, on
 
   // Keyboard
   useEffect(() => {
+    if (!enableKeyboard) return;
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === 'ArrowLeft') handlePrev();
       else if (e.key === 'ArrowRight') handleNext();
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [handlePrev, handleNext]);
+  }, [handlePrev, handleNext, enableKeyboard]);
 
   const getCardStyle = (index: number): React.CSSProperties => {
     const diff = (index - activeIndex + photos.length) % photos.length;
@@ -2074,6 +2111,7 @@ const GalleryPage: React.FC = () => {
             onPhotoChange={setActivePhotoIndex}
             onPhotoClick={openCinemaMode}
             onLogout={handleLogout}
+            isCinemaMode={!!cinemaMode}
           />
         </>
       ) : (
@@ -2348,6 +2386,7 @@ const GalleryPage: React.FC = () => {
                 activeIndex={activePhotoIndex}
                 onActiveChange={setActivePhotoIndex}
                 onPhotoClick={openCinemaMode}
+                enableKeyboard={!cinemaMode}
               />
             </div>
           </div>
@@ -2437,7 +2476,7 @@ const GalleryPage: React.FC = () => {
       </AnimatePresence>
 
       {/* Logout button - prawy dolny róg, minimalistyczny */}
-      {!isMobile && (
+      {!isMobile && !cinemaMode && (
         <motion.button
           onClick={handleLogout}
           className="fixed bottom-4 right-4 z-50 px-3 py-2 bg-black/40 hover:bg-black/60 backdrop-blur-sm rounded-lg text-white/60 hover:text-white text-xs flex items-center gap-2 transition-colors"
