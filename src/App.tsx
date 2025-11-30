@@ -2252,12 +2252,12 @@ const GalleryPage: React.FC = () => {
                 <button
                   onClick={isDownloading ? undefined : handleDownloadAll}
                   disabled={!isDownloading && albums.length === 0}
-                  className={`relative w-full py-2.5 rounded-lg text-white/70 text-sm flex items-center gap-3 transition-all duration-300 disabled:opacity-50 overflow-hidden group ${
+                  className={`relative w-full py-2.5 rounded-lg text-white text-sm flex items-center gap-3 transition-all duration-300 disabled:opacity-50 overflow-hidden group ${
                     isDownloading ? 'justify-start pl-4 pr-10 cursor-default' : 'justify-center px-4 cursor-pointer'
                   } ${
                     isCancelling && downloadingType === 'all' 
                       ? 'bg-red-500/20 border border-red-500/50' 
-                      : 'bg-white/5 hover:bg-black/80 hover:text-white hover:shadow-[0_0_15px_rgba(255,255,255,0.2)]'
+                      : 'bg-white/10 hover:bg-black/80 hover:text-white hover:shadow-[0_0_15px_rgba(255,255,255,0.2)]'
                   }`}
                 >
                   {isDownloading && downloadingType === 'all' && !isCancelling && (
