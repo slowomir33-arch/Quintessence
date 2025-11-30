@@ -268,11 +268,22 @@ function handle_album_zip(string $albumId): void {
     }
 
     $album = $data['albums'][$index];
+    
+    // Check if pre-generated ZIP exists (direct download - much faster!)
+    $zipName = 'Lena ' . $album['name'] . '.zip';
+    $pregenZip = __DIR__ . '/downloads/' . $zipName;
+    
+    if (file_exists($pregenZip)) {
+        // Redirect to static file - fastest option
+        $downloadUrl = 'https://api.lenaparty.pl/downloads/' . rawurlencode($zipName);
+        header('Location: ' . $downloadUrl, true, 302);
+        exit;
+    }
+    
+    // Fallback: generate ZIP on-the-fly (for new albums without pre-gen ZIP)
     $albumPath = DATA_DIR . '/uploads/albums/' . $albumId;
     $lightPath = $albumPath . '/light';
     $maxPath = $albumPath . '/max';
-
-    $zipName = 'Lena ' . $album['name'] . '.zip';
 
     stream_zip($zipName, function (ZipStream\ZipStream $zip) use ($album, $albumPath, $lightPath, $maxPath) {
         $hasLightMax = is_dir($lightPath) && is_dir($maxPath);
@@ -302,6 +313,19 @@ function handle_multi_download(): void {
         send_error(404, 'Nie znaleziono albumów');
     }
 
+    // If single album, check for pre-generated ZIP
+    if (count($albums) === 1) {
+        $zipName = 'Lena ' . $albums[0]['name'] . '.zip';
+        $pregenZip = __DIR__ . '/downloads/' . $zipName;
+        
+        if (file_exists($pregenZip)) {
+            $downloadUrl = 'https://api.lenaparty.pl/downloads/' . rawurlencode($zipName);
+            header('Location: ' . $downloadUrl, true, 302);
+            exit;
+        }
+    }
+
+    // Fallback: generate ZIP on-the-fly
     $zipName = count($albums) === 1 ? 'Lena ' . $albums[0]['name'] . '.zip' : 'Lena Galeria.zip';
 
     stream_zip($zipName, function (ZipStream\ZipStream $zip) use ($albums) {

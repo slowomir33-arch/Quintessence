@@ -1,0 +1,15 @@
+# Allow direct file downloads
+# Disable PHP processing in this folder
+php_flag engine off
+
+# Set proper headers for ZIP downloads
+<FilesMatch "\.zip$">
+    Header set Content-Type "application/octet-stream"
+    Header set Content-Disposition "attachment"
+    Header set X-Content-Type-Options "nosniff"
+</FilesMatch>
+
+# Enable resume for large downloads
+<IfModule mod_headers.c>
+    Header set Accept-Ranges "bytes"
+</IfModule>
