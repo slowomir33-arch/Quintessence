@@ -2196,9 +2196,9 @@ const GalleryPage: React.FC = () => {
               <div className="p-4 border-t border-white/10 space-y-2">
                 <button
                   onClick={isDownloading ? undefined : handlePrimaryDownload}
-                  disabled={!isDownloading && selectedCount === 0}
+                  disabled={isDownloading}
                   className={`relative w-full py-2.5 rounded-lg text-white text-sm flex items-center gap-3 transition-all duration-300 disabled:opacity-50 overflow-hidden group ${
-                    isDownloading ? 'justify-start pl-4 pr-10 cursor-default' : 'justify-center px-4 cursor-pointer'
+                    isDownloading ? 'justify-start pl-4 pr-10 cursor-default' : `justify-center px-4 ${selectedCount === 0 ? 'cursor-default' : 'cursor-pointer'}`
                   } ${
                     isCancelling && downloadingType === 'primary' 
                       ? 'bg-red-500/20 border border-red-500/50' 
