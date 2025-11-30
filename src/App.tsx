@@ -2214,7 +2214,7 @@ const GalleryPage: React.FC = () => {
                       {downloadProgress === 0 && <LoadingSparkle />}
                     </>
                   )}
-                  <span className={`relative z-10 flex items-center gap-2 ${isDownloading && downloadingType === 'primary' ? 'truncate w-full' : ''}`}>
+                  <span className="relative z-10 flex items-center gap-2 truncate w-full">
                     {isCancelling && downloadingType === 'primary' ? (
                       <>
                         <X className="w-4 h-4 text-red-400" />
@@ -2269,7 +2269,7 @@ const GalleryPage: React.FC = () => {
                       {downloadProgress === 0 && <LoadingSparkle />}
                     </>
                   )}
-                  <span className={`relative z-10 flex items-center gap-2 ${isDownloading && downloadingType === 'all' ? 'truncate w-full' : ''}`}>
+                  <span className="relative z-10 flex items-center gap-2 truncate w-full">
                     {isCancelling && downloadingType === 'all' ? (
                       <>
                         <X className="w-4 h-4 text-red-400" />
