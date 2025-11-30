@@ -1688,6 +1688,23 @@ const LoadingSparkle = ({ className = "rounded-lg" }: { className?: string }) =>
   </>
 );
 
+const Marquee = ({ text }: { text: string }) => (
+  <div className="overflow-hidden w-full">
+    <motion.div
+      className="whitespace-nowrap flex"
+      animate={{ x: "-50%" }}
+      transition={{ 
+        duration: 5, 
+        ease: "linear", 
+        repeat: Infinity 
+      }}
+    >
+      <span className="pr-8">{text}</span>
+      <span className="pr-8">{text}</span>
+    </motion.div>
+  </div>
+);
+
 // ============================================
 // GALLERY PAGE - Clean UI
 // ============================================
@@ -2183,11 +2200,17 @@ const GalleryPage: React.FC = () => {
                       {downloadProgress === 0 && <LoadingSparkle />}
                     </>
                   )}
-                  <span className="relative z-10 flex items-center gap-2 truncate">
+                  <span className="relative z-10 flex items-center gap-2 truncate w-full">
                     <Download className={`w-4 h-4 flex-shrink-0 ${isDownloading && downloadingType === 'primary' ? 'animate-bounce' : ''}`} />
-                    {isDownloading && downloadingType === 'primary' 
-                      ? (downloadProgress === 0 ? 'Przygotowywanie plików...' : `Pobieranie ${Math.round(downloadProgress)}%`)
-                      : downloadButtonLabel}
+                    {isDownloading && downloadingType === 'primary' && downloadProgress === 0 ? (
+                      <Marquee text="Przygotowywanie plików..." />
+                    ) : (
+                      <span className="truncate">
+                        {isDownloading && downloadingType === 'primary' 
+                          ? `Pobieranie ${Math.round(downloadProgress)}%` 
+                          : downloadButtonLabel}
+                      </span>
+                    )}
                   </span>
                   {isDownloading && downloadingType === 'primary' && (
                     <div 
@@ -2217,11 +2240,17 @@ const GalleryPage: React.FC = () => {
                       {downloadProgress === 0 && <LoadingSparkle />}
                     </>
                   )}
-                  <span className="relative z-10 flex items-center gap-2 truncate">
+                  <span className="relative z-10 flex items-center gap-2 truncate w-full">
                     <Download className={`w-4 h-4 flex-shrink-0 ${isDownloading && downloadingType === 'all' ? 'animate-bounce' : ''}`} />
-                    {isDownloading && downloadingType === 'all' 
-                      ? (downloadProgress === 0 ? 'Przygotowywanie plików...' : `Pobieranie ${Math.round(downloadProgress)}%`)
-                      : 'Pobierz całość'}
+                    {isDownloading && downloadingType === 'all' && downloadProgress === 0 ? (
+                      <Marquee text="Przygotowywanie plików..." />
+                    ) : (
+                      <span className="truncate">
+                        {isDownloading && downloadingType === 'all' 
+                          ? `Pobieranie ${Math.round(downloadProgress)}%` 
+                          : 'Pobierz całość'}
+                      </span>
+                    )}
                   </span>
                   {isDownloading && downloadingType === 'all' && (
                     <div 
