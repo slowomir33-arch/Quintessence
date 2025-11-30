@@ -2197,8 +2197,8 @@ const GalleryPage: React.FC = () => {
                 <button
                   onClick={isDownloading ? undefined : handlePrimaryDownload}
                   disabled={!isDownloading && selectedCount === 0}
-                  className={`relative w-full py-2.5 pl-4 pr-10 rounded-lg text-white text-sm flex items-center justify-start gap-3 transition-all duration-300 disabled:opacity-50 overflow-hidden group ${
-                    isDownloading ? 'cursor-default' : 'cursor-pointer'
+                  className={`relative w-full py-2.5 rounded-lg text-white text-sm flex items-center gap-3 transition-all duration-300 disabled:opacity-50 overflow-hidden group ${
+                    isDownloading ? 'justify-start pl-4 pr-10 cursor-default' : 'justify-center px-4 cursor-pointer'
                   } ${
                     isCancelling && downloadingType === 'primary' 
                       ? 'bg-red-500/20 border border-red-500/50' 
@@ -2214,7 +2214,7 @@ const GalleryPage: React.FC = () => {
                       {downloadProgress === 0 && <LoadingSparkle />}
                     </>
                   )}
-                  <span className="relative z-10 flex items-center gap-2 truncate w-full">
+                  <span className={`relative z-10 flex items-center gap-2 ${isDownloading ? 'w-full' : ''}`}>
                     {isCancelling && downloadingType === 'primary' ? (
                       <>
                         <X className="w-4 h-4 text-red-400" />
@@ -2229,7 +2229,7 @@ const GalleryPage: React.FC = () => {
                           isDownloading && downloadingType === 'primary' ? (
                             <Marquee text={`Pobieranie ${Math.round(downloadProgress)}%`} />
                           ) : (
-                            <span className="truncate">{downloadButtonLabel}</span>
+                            <span>{downloadButtonLabel}</span>
                           )
                         )}
                       </>
@@ -2252,8 +2252,8 @@ const GalleryPage: React.FC = () => {
                 <button
                   onClick={isDownloading ? undefined : handleDownloadAll}
                   disabled={!isDownloading && albums.length === 0}
-                  className={`relative w-full py-2.5 pl-4 pr-10 rounded-lg text-white/70 text-sm flex items-center justify-start gap-3 transition-all duration-300 disabled:opacity-50 overflow-hidden group ${
-                    isDownloading ? 'cursor-default' : 'cursor-pointer'
+                  className={`relative w-full py-2.5 rounded-lg text-white/70 text-sm flex items-center gap-3 transition-all duration-300 disabled:opacity-50 overflow-hidden group ${
+                    isDownloading ? 'justify-start pl-4 pr-10 cursor-default' : 'justify-center px-4 cursor-pointer'
                   } ${
                     isCancelling && downloadingType === 'all' 
                       ? 'bg-red-500/20 border border-red-500/50' 
@@ -2269,7 +2269,7 @@ const GalleryPage: React.FC = () => {
                       {downloadProgress === 0 && <LoadingSparkle />}
                     </>
                   )}
-                  <span className="relative z-10 flex items-center gap-2 truncate w-full">
+                  <span className={`relative z-10 flex items-center gap-2 ${isDownloading ? 'w-full' : ''}`}>
                     {isCancelling && downloadingType === 'all' ? (
                       <>
                         <X className="w-4 h-4 text-red-400" />
@@ -2284,7 +2284,7 @@ const GalleryPage: React.FC = () => {
                           isDownloading && downloadingType === 'all' ? (
                             <Marquee text={`Pobieranie ${Math.round(downloadProgress)}%`} />
                           ) : (
-                            <span className="truncate">Pobierz całość</span>
+                            <span>Pobierz całość</span>
                           )
                         )}
                       </>
