@@ -274,15 +274,15 @@ function handle_album_zip(string $albumId): void {
 
     $zipName = 'Lena ' . $album['name'] . '.zip';
 
-    stream_zip($zipName, function (ZipArchive $zip) use ($album, $albumPath, $lightPath, $maxPath) {
+    stream_zip($zipName, function (ZipStream\ZipStream $zip) use ($album, $albumPath, $lightPath, $maxPath) {
         $hasLightMax = is_dir($lightPath) && is_dir($maxPath);
         if ($hasLightMax) {
             $lightFolder = 'Lena ' . $album['name'] . ' - Light - do dzielenia się w internecie';
             $maxFolder = 'Lena ' . $album['name'] . ' - Max - do profesjonalnych wydruków';
-            add_folder_to_zip($zip, $lightPath, $lightFolder);
-            add_folder_to_zip($zip, $maxPath, $maxFolder);
+            add_folder_to_stream_zip($zip, $lightPath, $lightFolder);
+            add_folder_to_stream_zip($zip, $maxPath, $maxFolder);
         } else {
-            add_folder_to_zip($zip, $albumPath, 'Lena ' . $album['name']);
+            add_folder_to_stream_zip($zip, $albumPath, 'Lena ' . $album['name']);
         }
     });
 }
@@ -304,7 +304,7 @@ function handle_multi_download(): void {
 
     $zipName = count($albums) === 1 ? 'Lena ' . $albums[0]['name'] . '.zip' : 'Lena Galeria.zip';
 
-    stream_zip($zipName, function (ZipArchive $zip) use ($albums) {
+    stream_zip($zipName, function (ZipStream\ZipStream $zip) use ($albums) {
         foreach ($albums as $album) {
             $albumPath = DATA_DIR . '/uploads/albums/' . $album['id'];
             $lightPath = $albumPath . '/light';
@@ -313,10 +313,10 @@ function handle_multi_download(): void {
             if ($hasLightMax) {
                 $lightFolder = 'Lena ' . $album['name'] . ' - Light - do dzielenia się w internecie';
                 $maxFolder = 'Lena ' . $album['name'] . ' - Max - do profesjonalnych wydruków';
-                add_folder_to_zip($zip, $lightPath, $lightFolder);
-                add_folder_to_zip($zip, $maxPath, $maxFolder);
+                add_folder_to_stream_zip($zip, $lightPath, $lightFolder);
+                add_folder_to_stream_zip($zip, $maxPath, $maxFolder);
             } else {
-                add_folder_to_zip($zip, $albumPath, 'Lena ' . $album['name']);
+                add_folder_to_stream_zip($zip, $albumPath, 'Lena ' . $album['name']);
             }
         }
     });

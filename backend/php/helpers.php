@@ -1,6 +1,10 @@
 <?php
 
 require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/vendor/autoload.php';
+
+use ZipStream\ZipStream;
+use ZipStream\Option\Archive as ArchiveOptions;
 
 function send_json(int $status, array $payload): void {
     http_response_code($status);
@@ -212,7 +216,7 @@ function stream_zip(string $zipFilename, callable $builder): void {
     // Prevent timeout for large archives
     set_time_limit(0);
     ignore_user_abort(true);
-    ini_set('memory_limit', '512M');
+    ini_set('memory_limit', '256M');
     ini_set('zlib.output_compression', 'Off');
     
     // Disable ALL output buffering
@@ -222,70 +226,58 @@ function stream_zip(string $zipFilename, callable $builder): void {
     while (ob_get_level()) {
         ob_end_clean();
     }
-    
-    $tmp = tempnam(sys_get_temp_dir(), 'zip');
-    if ($tmp === false) {
-        throw new RuntimeException('Cannot create temporary file');
-    }
-    
-    $zip = new ZipArchive();
-    if ($zip->open($tmp, ZipArchive::OVERWRITE | ZipArchive::CREATE) !== true) {
-        @unlink($tmp);
-        throw new RuntimeException('Cannot create ZIP archive');
-    }
-    
-    $builder($zip);
-    
-    if (!$zip->close()) {
-        @unlink($tmp);
-        throw new RuntimeException('Failed to finalize ZIP archive');
-    }
-    
-    $filesize = filesize($tmp);
-    if ($filesize === false || $filesize === 0) {
-        @unlink($tmp);
-        throw new RuntimeException('ZIP archive is empty or unreadable');
-    }
 
-    // Sanitize filename for ASCII version (replace non-ascii with _)
+    // Sanitize filename
     $asciiFilename = preg_replace('/[^\x20-\x7E]/', '_', $zipFilename);
     $asciiFilename = str_replace(['"', '\\'], '', $asciiFilename);
-    
-    // Encode for UTF-8 version
     $utf8Filename = rawurlencode($zipFilename);
 
-    // Headers to prevent any caching/buffering
+    // Headers
     header('Content-Type: application/octet-stream');
     header('Content-Transfer-Encoding: binary');
     header('Content-Disposition: attachment; filename="' . $asciiFilename . '"; filename*=UTF-8\'\'' . $utf8Filename);
-    header('Content-Length: ' . $filesize);
     header('Cache-Control: no-cache, no-store, must-revalidate');
     header('Pragma: no-cache');
     header('Expires: 0');
-    header('X-Accel-Buffering: no'); // nginx
+    header('X-Accel-Buffering: no');
+
+    // Create streaming ZIP (no temp file!)
+    $options = new ArchiveOptions();
+    $options->setSendHttpHeaders(false);
+    $options->setFlushOutput(true);
+    $options->setZeroHeader(true); // Better for streaming
     
-    // Stream file in chunks
-    $handle = fopen($tmp, 'rb');
-    if ($handle === false) {
-        @unlink($tmp);
-        throw new RuntimeException('Cannot read ZIP file');
-    }
+    $zip = new ZipStream($asciiFilename, $options);
     
-    while (!feof($handle)) {
-        $chunk = fread($handle, 65536); // 64KB chunks
-        if ($chunk === false) {
-            break;
-        }
-        echo $chunk;
-        if (connection_aborted()) {
-            break;
-        }
-        flush();
-    }
+    $builder($zip);
     
-    fclose($handle);
-    @unlink($tmp);
+    $zip->finish();
     exit;
+}
+
+/**
+ * Add folder to streaming ZIP
+ */
+function add_folder_to_stream_zip(ZipStream $zip, string $folderPath, string $zipPath): void {
+    $folderPath = rtrim($folderPath, DIRECTORY_SEPARATOR);
+    if (!is_dir($folderPath)) {
+        return;
+    }
+    
+    $iterator = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($folderPath, RecursiveDirectoryIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::SELF_FIRST
+    );
+    
+    foreach ($iterator as $file) {
+        /** @var SplFileInfo $file */
+        $localName = $zipPath . '/' . $iterator->getSubPathname();
+        
+        if ($file->isFile()) {
+            // Stream file directly from disk - no memory usage!
+            $zip->addFileFromPath($localName, $file->getPathname());
+        }
+    }
 }
 
 function validate_uploaded_file(array $file): void {
