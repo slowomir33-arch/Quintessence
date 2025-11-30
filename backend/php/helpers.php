@@ -211,20 +211,41 @@ function to_public_path(string $path): string {
 function stream_zip(string $zipFilename, callable $builder): void {
     // Prevent timeout for large archives
     set_time_limit(0);
+    ignore_user_abort(true);
     ini_set('memory_limit', '512M');
+    ini_set('zlib.output_compression', 'Off');
     
-    // Disable output buffering for streaming
+    // Disable ALL output buffering
+    if (function_exists('apache_setenv')) {
+        apache_setenv('no-gzip', '1');
+    }
     while (ob_get_level()) {
         ob_end_clean();
     }
     
     $tmp = tempnam(sys_get_temp_dir(), 'zip');
+    if ($tmp === false) {
+        throw new RuntimeException('Cannot create temporary file');
+    }
+    
     $zip = new ZipArchive();
     if ($zip->open($tmp, ZipArchive::OVERWRITE | ZipArchive::CREATE) !== true) {
+        @unlink($tmp);
         throw new RuntimeException('Cannot create ZIP archive');
     }
+    
     $builder($zip);
-    $zip->close();
+    
+    if (!$zip->close()) {
+        @unlink($tmp);
+        throw new RuntimeException('Failed to finalize ZIP archive');
+    }
+    
+    $filesize = filesize($tmp);
+    if ($filesize === false || $filesize === 0) {
+        @unlink($tmp);
+        throw new RuntimeException('ZIP archive is empty or unreadable');
+    }
 
     // Sanitize filename for ASCII version (replace non-ascii with _)
     $asciiFilename = preg_replace('/[^\x20-\x7E]/', '_', $zipFilename);
@@ -233,21 +254,37 @@ function stream_zip(string $zipFilename, callable $builder): void {
     // Encode for UTF-8 version
     $utf8Filename = rawurlencode($zipFilename);
 
-    header('Content-Type: application/zip');
+    // Headers to prevent any caching/buffering
+    header('Content-Type: application/octet-stream');
+    header('Content-Transfer-Encoding: binary');
     header('Content-Disposition: attachment; filename="' . $asciiFilename . '"; filename*=UTF-8\'\'' . $utf8Filename);
-    header('Content-Length: ' . filesize($tmp));
+    header('Content-Length: ' . $filesize);
+    header('Cache-Control: no-cache, no-store, must-revalidate');
+    header('Pragma: no-cache');
+    header('Expires: 0');
+    header('X-Accel-Buffering: no'); // nginx
     
-    // Stream file in chunks to avoid memory issues
+    // Stream file in chunks
     $handle = fopen($tmp, 'rb');
-    if ($handle) {
-        while (!feof($handle)) {
-            echo fread($handle, 8192);
-            flush();
-        }
-        fclose($handle);
+    if ($handle === false) {
+        @unlink($tmp);
+        throw new RuntimeException('Cannot read ZIP file');
     }
     
-    unlink($tmp);
+    while (!feof($handle)) {
+        $chunk = fread($handle, 65536); // 64KB chunks
+        if ($chunk === false) {
+            break;
+        }
+        echo $chunk;
+        if (connection_aborted()) {
+            break;
+        }
+        flush();
+    }
+    
+    fclose($handle);
+    @unlink($tmp);
     exit;
 }
 
