@@ -1689,18 +1689,17 @@ const LoadingSparkle = ({ className = "rounded-lg" }: { className?: string }) =>
 );
 
 const Marquee = ({ text }: { text: string }) => (
-  <div className="overflow-hidden w-full">
+  <div className="overflow-hidden w-full relative mask-linear-fade">
     <motion.div
       className="whitespace-nowrap flex"
-      animate={{ x: "-50%" }}
+      animate={{ x: ["100%", "-100%"] }}
       transition={{ 
-        duration: 5, 
+        duration: 8, 
         ease: "linear", 
         repeat: Infinity 
       }}
     >
-      <span className="pr-8">{text}</span>
-      <span className="pr-8">{text}</span>
+      <span className="px-4">{text}</span>
     </motion.div>
   </div>
 );
@@ -2225,11 +2224,11 @@ const GalleryPage: React.FC = () => {
                         {isDownloading && downloadingType === 'primary' && downloadProgress === 0 ? (
                           <Marquee text="Przygotowywanie plików..." />
                         ) : (
-                          <span className="truncate">
-                            {isDownloading && downloadingType === 'primary' 
-                              ? `Pobieranie ${Math.round(downloadProgress)}%` 
-                              : downloadButtonLabel}
-                          </span>
+                          isDownloading && downloadingType === 'primary' ? (
+                            <Marquee text={`Pobieranie ${Math.round(downloadProgress)}%`} />
+                          ) : (
+                            <span className="truncate">{downloadButtonLabel}</span>
+                          )
                         )}
                       </>
                     )}
@@ -2278,11 +2277,11 @@ const GalleryPage: React.FC = () => {
                         {isDownloading && downloadingType === 'all' && downloadProgress === 0 ? (
                           <Marquee text="Przygotowywanie plików..." />
                         ) : (
-                          <span className="truncate">
-                            {isDownloading && downloadingType === 'all' 
-                              ? `Pobieranie ${Math.round(downloadProgress)}%` 
-                              : 'Pobierz całość'}
-                          </span>
+                          isDownloading && downloadingType === 'all' ? (
+                            <Marquee text={`Pobieranie ${Math.round(downloadProgress)}%`} />
+                          ) : (
+                            <span className="truncate">Pobierz całość</span>
+                          )
                         )}
                       </>
                     )}
