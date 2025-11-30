@@ -2172,21 +2172,21 @@ const GalleryPage: React.FC = () => {
                 <button
                   onClick={handlePrimaryDownload}
                   disabled={isDownloading || selectedCount === 0}
-                  className="relative w-full py-2.5 px-4 bg-white/10 hover:bg-black/80 rounded-lg text-white hover:text-white hover:shadow-[0_0_15px_rgba(255,255,255,0.2)] text-sm flex items-center justify-center gap-2 transition-all duration-300 disabled:opacity-50 overflow-hidden"
+                  className="relative w-full py-2.5 pl-4 pr-10 bg-white/10 hover:bg-black/80 rounded-lg text-white hover:text-white hover:shadow-[0_0_15px_rgba(255,255,255,0.2)] text-sm flex items-center justify-start gap-3 transition-all duration-300 disabled:opacity-50 overflow-hidden group"
                 >
                   {isDownloading && downloadingType === 'primary' && (
                     <>
                       <div 
-                        className="absolute inset-0 bg-white/20 z-0 transition-all duration-300 ease-out"
+                        className="absolute inset-0 bg-gradient-to-r from-white/5 to-white/30 z-0 transition-all duration-300 ease-out"
                         style={{ width: `${downloadProgress}%` }}
                       />
-                      <LoadingSparkle />
+                      {downloadProgress === 0 && <LoadingSparkle />}
                     </>
                   )}
-                  <span className="relative z-10 flex items-center gap-2">
-                    <Download className={`w-4 h-4 ${isDownloading && downloadingType === 'primary' ? 'animate-bounce' : ''}`} />
+                  <span className="relative z-10 flex items-center gap-2 truncate">
+                    <Download className={`w-4 h-4 flex-shrink-0 ${isDownloading && downloadingType === 'primary' ? 'animate-bounce' : ''}`} />
                     {isDownloading && downloadingType === 'primary' 
-                      ? `Pobieranie ${Math.round(downloadProgress)}%` 
+                      ? (downloadProgress === 0 ? 'Przygotowywanie plików...' : `Pobieranie ${Math.round(downloadProgress)}%`)
                       : downloadButtonLabel}
                   </span>
                   {isDownloading && downloadingType === 'primary' && (
@@ -2206,21 +2206,21 @@ const GalleryPage: React.FC = () => {
                 <button
                   onClick={handleDownloadAll}
                   disabled={isDownloading || albums.length === 0}
-                  className="relative w-full py-2.5 px-4 bg-white/5 hover:bg-black/80 rounded-lg text-white/70 hover:text-white hover:shadow-[0_0_15px_rgba(255,255,255,0.2)] text-sm flex items-center justify-center gap-2 transition-all duration-300 disabled:opacity-50 overflow-hidden"
+                  className="relative w-full py-2.5 pl-4 pr-10 bg-white/5 hover:bg-black/80 rounded-lg text-white/70 hover:text-white hover:shadow-[0_0_15px_rgba(255,255,255,0.2)] text-sm flex items-center justify-start gap-3 transition-all duration-300 disabled:opacity-50 overflow-hidden group"
                 >
                   {isDownloading && downloadingType === 'all' && (
                     <>
                       <div 
-                        className="absolute inset-0 bg-white/20 z-0 transition-all duration-300 ease-out"
+                        className="absolute inset-0 bg-gradient-to-r from-white/5 to-white/30 z-0 transition-all duration-300 ease-out"
                         style={{ width: `${downloadProgress}%` }}
                       />
-                      <LoadingSparkle />
+                      {downloadProgress === 0 && <LoadingSparkle />}
                     </>
                   )}
-                  <span className="relative z-10 flex items-center gap-2">
-                    <Download className={`w-4 h-4 ${isDownloading && downloadingType === 'all' ? 'animate-bounce' : ''}`} />
+                  <span className="relative z-10 flex items-center gap-2 truncate">
+                    <Download className={`w-4 h-4 flex-shrink-0 ${isDownloading && downloadingType === 'all' ? 'animate-bounce' : ''}`} />
                     {isDownloading && downloadingType === 'all' 
-                      ? `Pobieranie ${Math.round(downloadProgress)}%` 
+                      ? (downloadProgress === 0 ? 'Przygotowywanie plików...' : `Pobieranie ${Math.round(downloadProgress)}%`)
                       : 'Pobierz całość'}
                   </span>
                   {isDownloading && downloadingType === 'all' && (
