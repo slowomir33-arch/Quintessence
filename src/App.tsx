@@ -2177,7 +2177,7 @@ const GalleryPage: React.FC = () => {
                         e.stopPropagation();
                         toggleAlbumSelection(album.id);
                       }}
-                      className="absolute top-2 right-2 p-1 bg-black/50 rounded-md hover:bg-black/70 transition-colors"
+                      className="absolute top-2 right-2 p-2 bg-black/50 hover:bg-black/70 rounded-full transition-colors backdrop-blur-sm"
                       title="Zaznacz album"
                     >
                       {selectedAlbums.has(album.id) ? (
@@ -2195,9 +2195,15 @@ const GalleryPage: React.FC = () => {
             {canDownload && (
               <div className="p-4 border-t border-white/10 space-y-2">
                 <button
-                  onClick={handlePrimaryDownload}
-                  disabled={isDownloading || selectedCount === 0}
-                  className={`relative w-full py-2.5 pl-4 pr-10 rounded-lg text-white text-sm flex items-center justify-start gap-3 transition-all duration-300 disabled:opacity-50 overflow-hidden group ${
+                  onClick={isDownloading ? undefined : handlePrimaryDownload}
+                  disabled={!isDownloading && selectedCount === 0}
+                  className={`relative w-full py-2.5 rounded-lg text-white text-sm flex items-center transition-all duration-300 disabled:opacity-50 overflow-hidden group ${
+                    isDownloading ? 'cursor-default' : 'cursor-pointer'
+                  } ${
+                    isDownloading && downloadingType === 'primary'
+                      ? 'pl-4 pr-10 justify-start gap-3'
+                      : 'px-4 justify-center gap-2'
+                  } ${
                     isCancelling && downloadingType === 'primary' 
                       ? 'bg-red-500/20 border border-red-500/50' 
                       : 'bg-white/10 hover:bg-black/80 hover:text-white hover:shadow-[0_0_15px_rgba(255,255,255,0.2)]'
@@ -2212,7 +2218,7 @@ const GalleryPage: React.FC = () => {
                       {downloadProgress === 0 && <LoadingSparkle />}
                     </>
                   )}
-                  <span className="relative z-10 flex items-center gap-2 truncate w-full">
+                  <span className={`relative z-10 flex items-center gap-2 ${isDownloading && downloadingType === 'primary' ? 'truncate w-full' : ''}`}>
                     {isCancelling && downloadingType === 'primary' ? (
                       <>
                         <X className="w-4 h-4 text-red-400" />
@@ -2239,7 +2245,7 @@ const GalleryPage: React.FC = () => {
                         e.stopPropagation();
                         handleCancelDownload();
                       }}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 z-20 p-1.5 bg-red-500/80 hover:bg-red-600 rounded cursor-pointer transition-colors shadow-lg active:scale-90"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 z-20 p-1.5 bg-red-500/80 hover:bg-red-600 rounded cursor-pointer transition-colors shadow-lg active:scale-90 pointer-events-auto"
                       title="Anuluj pobieranie"
                     >
                       <Square className="w-3 h-3 text-white fill-white" />
@@ -2248,9 +2254,15 @@ const GalleryPage: React.FC = () => {
                 </button>
 
                 <button
-                  onClick={handleDownloadAll}
-                  disabled={isDownloading || albums.length === 0}
-                  className={`relative w-full py-2.5 pl-4 pr-10 rounded-lg text-white/70 text-sm flex items-center justify-start gap-3 transition-all duration-300 disabled:opacity-50 overflow-hidden group ${
+                  onClick={isDownloading ? undefined : handleDownloadAll}
+                  disabled={!isDownloading && albums.length === 0}
+                  className={`relative w-full py-2.5 rounded-lg text-white/70 text-sm flex items-center transition-all duration-300 disabled:opacity-50 overflow-hidden group ${
+                    isDownloading ? 'cursor-default' : 'cursor-pointer'
+                  } ${
+                    isDownloading && downloadingType === 'all'
+                      ? 'pl-4 pr-10 justify-start gap-3'
+                      : 'px-4 justify-center gap-2'
+                  } ${
                     isCancelling && downloadingType === 'all' 
                       ? 'bg-red-500/20 border border-red-500/50' 
                       : 'bg-white/5 hover:bg-black/80 hover:text-white hover:shadow-[0_0_15px_rgba(255,255,255,0.2)]'
@@ -2265,7 +2277,7 @@ const GalleryPage: React.FC = () => {
                       {downloadProgress === 0 && <LoadingSparkle />}
                     </>
                   )}
-                  <span className="relative z-10 flex items-center gap-2 truncate w-full">
+                  <span className={`relative z-10 flex items-center gap-2 ${isDownloading && downloadingType === 'all' ? 'truncate w-full' : ''}`}>
                     {isCancelling && downloadingType === 'all' ? (
                       <>
                         <X className="w-4 h-4 text-red-400" />
@@ -2292,7 +2304,7 @@ const GalleryPage: React.FC = () => {
                         e.stopPropagation();
                         handleCancelDownload();
                       }}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 z-20 p-1.5 bg-red-500/80 hover:bg-red-600 rounded cursor-pointer transition-colors shadow-lg active:scale-90"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 z-20 p-1.5 bg-red-500/80 hover:bg-red-600 rounded cursor-pointer transition-colors shadow-lg active:scale-90 pointer-events-auto"
                       title="Anuluj pobieranie"
                     >
                       <Square className="w-3 h-3 text-white fill-white" />
