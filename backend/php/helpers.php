@@ -209,6 +209,15 @@ function to_public_path(string $path): string {
 }
 
 function stream_zip(string $zipFilename, callable $builder): void {
+    // Prevent timeout for large archives
+    set_time_limit(0);
+    ini_set('memory_limit', '512M');
+    
+    // Disable output buffering for streaming
+    while (ob_get_level()) {
+        ob_end_clean();
+    }
+    
     $tmp = tempnam(sys_get_temp_dir(), 'zip');
     $zip = new ZipArchive();
     if ($zip->open($tmp, ZipArchive::OVERWRITE | ZipArchive::CREATE) !== true) {
@@ -227,7 +236,17 @@ function stream_zip(string $zipFilename, callable $builder): void {
     header('Content-Type: application/zip');
     header('Content-Disposition: attachment; filename="' . $asciiFilename . '"; filename*=UTF-8\'\'' . $utf8Filename);
     header('Content-Length: ' . filesize($tmp));
-    readfile($tmp);
+    
+    // Stream file in chunks to avoid memory issues
+    $handle = fopen($tmp, 'rb');
+    if ($handle) {
+        while (!feof($handle)) {
+            echo fread($handle, 8192);
+            flush();
+        }
+        fclose($handle);
+    }
+    
     unlink($tmp);
     exit;
 }
