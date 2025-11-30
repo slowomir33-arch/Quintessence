@@ -2118,7 +2118,7 @@ const GalleryPage: React.FC = () => {
               {albums.map((album, index) => (
                 <motion.div
                   key={album.id}
-                  className={`relative rounded-xl overflow-hidden cursor-pointer transition-all duration-300 ${
+                  className={`relative group rounded-xl overflow-hidden cursor-pointer transition-all duration-300 ${
                     index === activeAlbumIndex 
                       ? 'ring-2 ring-white shadow-lg grayscale-0' 
                       : 'opacity-80 hover:opacity-100 grayscale hover:grayscale-0'
@@ -2177,7 +2177,9 @@ const GalleryPage: React.FC = () => {
                         e.stopPropagation();
                         toggleAlbumSelection(album.id);
                       }}
-                      className="absolute top-2 right-2 p-2 bg-black/50 hover:bg-black/70 rounded-full transition-colors backdrop-blur-sm"
+                      className={`absolute top-2 right-2 p-1 bg-black/50 hover:bg-black/70 rounded-md transition-all duration-200 ${
+                        selectedAlbums.has(album.id) ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                      }`}
                       title="Zaznacz album"
                     >
                       {selectedAlbums.has(album.id) ? (
@@ -2228,7 +2230,7 @@ const GalleryPage: React.FC = () => {
                       <>
                         <Download className={`w-4 h-4 flex-shrink-0 ${isDownloading && downloadingType === 'primary' ? 'animate-bounce' : ''}`} />
                         {isDownloading && downloadingType === 'primary' && downloadProgress === 0 ? (
-                          <Marquee text="Przygotowywanie plików..." />
+                          <Marquee text="Przygotowywanie plików...     " />
                         ) : (
                           isDownloading && downloadingType === 'primary' ? (
                             <Marquee text={`Pobieranie ${Math.round(downloadProgress)}%`} />
@@ -2287,7 +2289,7 @@ const GalleryPage: React.FC = () => {
                       <>
                         <Download className={`w-4 h-4 flex-shrink-0 ${isDownloading && downloadingType === 'all' ? 'animate-bounce' : ''}`} />
                         {isDownloading && downloadingType === 'all' && downloadProgress === 0 ? (
-                          <Marquee text="Przygotowywanie plików..." />
+                          <Marquee text="Przygotowywanie plików...     " />
                         ) : (
                           isDownloading && downloadingType === 'all' ? (
                             <Marquee text={`Pobieranie ${Math.round(downloadProgress)}%`} />
