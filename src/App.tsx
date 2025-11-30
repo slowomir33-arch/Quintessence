@@ -2177,9 +2177,7 @@ const GalleryPage: React.FC = () => {
                         e.stopPropagation();
                         toggleAlbumSelection(album.id);
                       }}
-                      className={`absolute top-2 right-2 p-1 bg-black/50 hover:bg-black/70 rounded-md transition-all duration-200 ${
-                        selectedAlbums.has(album.id) ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
-                      }`}
+                      className="absolute top-2 right-2 p-1 bg-black/50 rounded-md hover:bg-black/70 transition-colors"
                       title="Zaznacz album"
                     >
                       {selectedAlbums.has(album.id) ? (
@@ -2199,12 +2197,8 @@ const GalleryPage: React.FC = () => {
                 <button
                   onClick={isDownloading ? undefined : handlePrimaryDownload}
                   disabled={!isDownloading && selectedCount === 0}
-                  className={`relative w-full py-2.5 rounded-lg text-white text-sm flex items-center transition-all duration-300 disabled:opacity-50 overflow-hidden group ${
+                  className={`relative w-full py-2.5 pl-4 pr-10 rounded-lg text-white text-sm flex items-center justify-start gap-3 transition-all duration-300 disabled:opacity-50 overflow-hidden group ${
                     isDownloading ? 'cursor-default' : 'cursor-pointer'
-                  } ${
-                    isDownloading && downloadingType === 'primary'
-                      ? 'pl-4 pr-10 justify-start gap-3'
-                      : 'px-4 justify-center gap-2'
                   } ${
                     isCancelling && downloadingType === 'primary' 
                       ? 'bg-red-500/20 border border-red-500/50' 
@@ -2258,12 +2252,8 @@ const GalleryPage: React.FC = () => {
                 <button
                   onClick={isDownloading ? undefined : handleDownloadAll}
                   disabled={!isDownloading && albums.length === 0}
-                  className={`relative w-full py-2.5 rounded-lg text-white/70 text-sm flex items-center transition-all duration-300 disabled:opacity-50 overflow-hidden group ${
+                  className={`relative w-full py-2.5 pl-4 pr-10 rounded-lg text-white/70 text-sm flex items-center justify-start gap-3 transition-all duration-300 disabled:opacity-50 overflow-hidden group ${
                     isDownloading ? 'cursor-default' : 'cursor-pointer'
-                  } ${
-                    isDownloading && downloadingType === 'all'
-                      ? 'pl-4 pr-10 justify-start gap-3'
-                      : 'px-4 justify-center gap-2'
                   } ${
                     isCancelling && downloadingType === 'all' 
                       ? 'bg-red-500/20 border border-red-500/50' 
