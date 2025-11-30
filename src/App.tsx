@@ -1733,6 +1733,7 @@ const GalleryPage: React.FC = () => {
   const [downloadingType, setDownloadingType] = useState<'primary' | 'all' | null>(null);
   const [downloadProgress, setDownloadProgress] = useState(0);
   const [abortController, setAbortController] = useState<AbortController | null>(null);
+  const [isCancelling, setIsCancelling] = useState(false);
   
   // Scrollbar dragging refs
   const galleryScrollbarRef = useRef<HTMLDivElement>(null);
@@ -1849,9 +1850,17 @@ const GalleryPage: React.FC = () => {
     if (abortController) {
       abortController.abort();
       setAbortController(null);
-      setIsDownloading(false);
-      setDownloadingType(null);
-      setDownloadProgress(0);
+      
+      // Show feedback
+      setIsCancelling(true);
+      
+      // Delay reset to show "Cancelled" message
+      setTimeout(() => {
+        setIsDownloading(false);
+        setDownloadingType(null);
+        setDownloadProgress(0);
+        setIsCancelling(false);
+      }, 1500);
     }
   };
 
@@ -2189,9 +2198,13 @@ const GalleryPage: React.FC = () => {
                 <button
                   onClick={handlePrimaryDownload}
                   disabled={isDownloading || selectedCount === 0}
-                  className="relative w-full py-2.5 pl-4 pr-10 bg-white/10 hover:bg-black/80 rounded-lg text-white hover:text-white hover:shadow-[0_0_15px_rgba(255,255,255,0.2)] text-sm flex items-center justify-start gap-3 transition-all duration-300 disabled:opacity-50 overflow-hidden group"
+                  className={`relative w-full py-2.5 pl-4 pr-10 rounded-lg text-white text-sm flex items-center justify-start gap-3 transition-all duration-300 disabled:opacity-50 overflow-hidden group ${
+                    isCancelling && downloadingType === 'primary' 
+                      ? 'bg-red-500/20 border border-red-500/50' 
+                      : 'bg-white/10 hover:bg-black/80 hover:text-white hover:shadow-[0_0_15px_rgba(255,255,255,0.2)]'
+                  }`}
                 >
-                  {isDownloading && downloadingType === 'primary' && (
+                  {isDownloading && downloadingType === 'primary' && !isCancelling && (
                     <>
                       <div 
                         className="absolute inset-0 bg-gradient-to-r from-white/5 to-white/30 z-0 transition-all duration-300 ease-out"
@@ -2201,24 +2214,33 @@ const GalleryPage: React.FC = () => {
                     </>
                   )}
                   <span className="relative z-10 flex items-center gap-2 truncate w-full">
-                    <Download className={`w-4 h-4 flex-shrink-0 ${isDownloading && downloadingType === 'primary' ? 'animate-bounce' : ''}`} />
-                    {isDownloading && downloadingType === 'primary' && downloadProgress === 0 ? (
-                      <Marquee text="Przygotowywanie plików..." />
+                    {isCancelling && downloadingType === 'primary' ? (
+                      <>
+                        <X className="w-4 h-4 text-red-400" />
+                        <span className="text-red-200">Anulowano</span>
+                      </>
                     ) : (
-                      <span className="truncate">
-                        {isDownloading && downloadingType === 'primary' 
-                          ? `Pobieranie ${Math.round(downloadProgress)}%` 
-                          : downloadButtonLabel}
-                      </span>
+                      <>
+                        <Download className={`w-4 h-4 flex-shrink-0 ${isDownloading && downloadingType === 'primary' ? 'animate-bounce' : ''}`} />
+                        {isDownloading && downloadingType === 'primary' && downloadProgress === 0 ? (
+                          <Marquee text="Przygotowywanie plików..." />
+                        ) : (
+                          <span className="truncate">
+                            {isDownloading && downloadingType === 'primary' 
+                              ? `Pobieranie ${Math.round(downloadProgress)}%` 
+                              : downloadButtonLabel}
+                          </span>
+                        )}
+                      </>
                     )}
                   </span>
-                  {isDownloading && downloadingType === 'primary' && (
+                  {isDownloading && downloadingType === 'primary' && !isCancelling && (
                     <div 
                       onClick={(e) => {
                         e.stopPropagation();
                         handleCancelDownload();
                       }}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 z-20 p-1.5 bg-red-500/80 hover:bg-red-600 rounded cursor-pointer transition-colors shadow-lg"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 z-20 p-1.5 bg-red-500/80 hover:bg-red-600 rounded cursor-pointer transition-colors shadow-lg active:scale-90"
                       title="Anuluj pobieranie"
                     >
                       <Square className="w-3 h-3 text-white fill-white" />
@@ -2229,9 +2251,13 @@ const GalleryPage: React.FC = () => {
                 <button
                   onClick={handleDownloadAll}
                   disabled={isDownloading || albums.length === 0}
-                  className="relative w-full py-2.5 pl-4 pr-10 bg-white/5 hover:bg-black/80 rounded-lg text-white/70 hover:text-white hover:shadow-[0_0_15px_rgba(255,255,255,0.2)] text-sm flex items-center justify-start gap-3 transition-all duration-300 disabled:opacity-50 overflow-hidden group"
+                  className={`relative w-full py-2.5 pl-4 pr-10 rounded-lg text-white/70 text-sm flex items-center justify-start gap-3 transition-all duration-300 disabled:opacity-50 overflow-hidden group ${
+                    isCancelling && downloadingType === 'all' 
+                      ? 'bg-red-500/20 border border-red-500/50' 
+                      : 'bg-white/5 hover:bg-black/80 hover:text-white hover:shadow-[0_0_15px_rgba(255,255,255,0.2)]'
+                  }`}
                 >
-                  {isDownloading && downloadingType === 'all' && (
+                  {isDownloading && downloadingType === 'all' && !isCancelling && (
                     <>
                       <div 
                         className="absolute inset-0 bg-gradient-to-r from-white/5 to-white/30 z-0 transition-all duration-300 ease-out"
@@ -2241,24 +2267,33 @@ const GalleryPage: React.FC = () => {
                     </>
                   )}
                   <span className="relative z-10 flex items-center gap-2 truncate w-full">
-                    <Download className={`w-4 h-4 flex-shrink-0 ${isDownloading && downloadingType === 'all' ? 'animate-bounce' : ''}`} />
-                    {isDownloading && downloadingType === 'all' && downloadProgress === 0 ? (
-                      <Marquee text="Przygotowywanie plików..." />
+                    {isCancelling && downloadingType === 'all' ? (
+                      <>
+                        <X className="w-4 h-4 text-red-400" />
+                        <span className="text-red-200">Anulowano</span>
+                      </>
                     ) : (
-                      <span className="truncate">
-                        {isDownloading && downloadingType === 'all' 
-                          ? `Pobieranie ${Math.round(downloadProgress)}%` 
-                          : 'Pobierz całość'}
-                      </span>
+                      <>
+                        <Download className={`w-4 h-4 flex-shrink-0 ${isDownloading && downloadingType === 'all' ? 'animate-bounce' : ''}`} />
+                        {isDownloading && downloadingType === 'all' && downloadProgress === 0 ? (
+                          <Marquee text="Przygotowywanie plików..." />
+                        ) : (
+                          <span className="truncate">
+                            {isDownloading && downloadingType === 'all' 
+                              ? `Pobieranie ${Math.round(downloadProgress)}%` 
+                              : 'Pobierz całość'}
+                          </span>
+                        )}
+                      </>
                     )}
                   </span>
-                  {isDownloading && downloadingType === 'all' && (
+                  {isDownloading && downloadingType === 'all' && !isCancelling && (
                     <div 
                       onClick={(e) => {
                         e.stopPropagation();
                         handleCancelDownload();
                       }}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 z-20 p-1.5 bg-red-500/80 hover:bg-red-600 rounded cursor-pointer transition-colors shadow-lg"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 z-20 p-1.5 bg-red-500/80 hover:bg-red-600 rounded cursor-pointer transition-colors shadow-lg active:scale-90"
                       title="Anuluj pobieranie"
                     >
                       <Square className="w-3 h-3 text-white fill-white" />
